@@ -2,6 +2,7 @@ import argparse
 import pickle
 import warnings
 import pdb
+import json
 
 import numpy as np
 
@@ -95,10 +96,15 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
 def infer(options):
 
     # load the model
-    handle = open(options.model_file, 'rb')
-    transition = pickle.load(handle)
-    emission = pickle.load(handle)
-    handle.close()
+    # handle = open(options.model_file, 'rb')
+    # transition = pickle.load(handle)
+    # emission = pickle.load(handle)
+    # handle.close()
+
+    """
+    Load the model from JSON
+    """
+    model_params = json.load(open(options.model_file))
 
     # load transcripts
     transcript_models = load_data.load_gtf(options.gtf_file)
@@ -162,8 +168,10 @@ def infer(options):
                 rna_mappability = [np.ones(c.shape,dtype='bool') for c in footprint_counts]
 
             # run the learning algorithm
+            # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
+            #                        rna_counts, rna_mappability, transition, emission)
             states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
-                                   rna_counts, rna_mappability, transition, emission)
+                                   rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
 
             # write results
             ig = [write_inferred_cds(handle, transcript, state, frame, rna_sequence) \
@@ -204,8 +212,10 @@ def infer(options):
                 rna_mappability = [np.ones(c.shape,dtype='bool') for c in footprint_counts]
 
             # run the learning algorithm
+            # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
+            #                        rna_counts, rna_mappability, transition, emission)
             states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
-                                   rna_counts, rna_mappability, transition, emission)
+                                   rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
 
             # write results
             ig = [write_inferred_cds(handle, transcript, state, frame, rna_sequence) \

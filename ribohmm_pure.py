@@ -128,7 +128,7 @@ class Data:
         # cdef np.ndarray[np.float64_t, ndim=1] alpha, beta
         # cdef np.ndarray[np.float64_t, ndim=2] rescale, log_probability, rate_log_probability
 
-        self.log_probability = np.zeros((3, self.M, emission.S), dtype=np.float64)
+        self.log_probability = np.zeros((3, self.M, emission['S']), dtype=np.float64)
         self.extra_log_probability = np.zeros((3,), dtype=np.float64)
         # missingness-types where 1 out of 3 positions are unmappable
         misstypes = np.array([3,5,6,7]).reshape(4,1)
@@ -141,7 +141,7 @@ class Data:
             # for r from 0 <= r < self.R:
             for r in range(self.R):
 
-                log_probability = np.zeros((self.M,emission.S), dtype=np.float64)
+                log_probability = np.zeros((self.M,emission['S']), dtype=np.float64)
                 dat = self.obs[f:3*self.M+f,r].reshape(self.M,3)
 
                 # probability under periodicity model, accounting for mappability
@@ -149,16 +149,16 @@ class Data:
                 mapAB = np.any(self.missingness_type[r,f,:] == misstypes,0)
                 log_probability[mapAB,:] = (gammaln(self.total[f,mapAB,r]+1) -
                                            np.sum(gammaln(dat[mapAB,:]+1),1)).reshape(mapAB.sum(),1) + \
-                                           np.dot(dat[mapAB,:], emission.logperiodicity[r].T)
+                                           np.dot(dat[mapAB,:], emission['logperiodicity'][r].T)
                 for mtype in misstypes[:3,0]:
                     mapAB = self.missingness_type[r,f,:]==mtype
                     log_probability[mapAB,:] -= np.dot(self.total[f,mapAB,r:r+1],
-                                                       utils.nplog(emission.rescale[r:r+1,:,mtype]))
+                                                       utils.nplog(emission['rescale'][r:r+1,:,mtype]))
 
                 # probability under occupancy model, accounting for mappability
-                alpha = emission.rate_alpha[r]
-                beta = emission.rate_beta[r]
-                rescale = emission.rescale[r,:,self.missingness_type[r,f,:]]
+                alpha = emission['rate_alpha'][r]
+                beta = emission['rate_beta'][r]
+                rescale = emission['rescale'][r,:,self.missingness_type[r,f,:]]
                 total = self.total[f,:,r:r+1]
                 rate_log_probability = alpha*beta*utils.nplog(beta) + \
                                        gammaln(alpha*beta + total) - \
@@ -269,14 +269,19 @@ class State(object):
         # cdef np.ndarray[np.float64_t, ndim=1] newalpha, logprior
         # cdef np.ndarray[np.float64_t, ndim=2] P, Q
 
+
+        """
+        Inflate serialized transition dictionary
+        """
+
         logprior = utils.nplog([1,0,0,0,0,0,0,0,0])
         swapidx = np.array([2,3,6,7]).astype(np.uint8)
         self.alpha = np.zeros((3,self.M,self.S), dtype=np.float64)
         self.likelihood = np.zeros((self.M,3), dtype=np.float64)
 
-        P = logistic(-1*(transition.seqparam['kozak'] * data.codon_id['kozak']
-            + transition.seqparam['start'][data.codon_id['start']]))
-        Q = logistic(-1*transition.seqparam['stop'][data.codon_id['stop']])
+        P = logistic(-1*(transition['seqparam']['kozak'] * data.codon_id['kozak']
+            + transition['seqparam']['start'][data.codon_id['start']]))
+        Q = logistic(-1*transition['seqparam']['stop'][data.codon_id['stop']])
 
         # for f from 0 <= f < 3:
         for f in range(3):
@@ -448,9 +453,9 @@ class State(object):
         # cdef np.ndarray[np.float64_t, ndim=1] alpha, logprior
         # cdef np.ndarray[np.float64_t, ndim=2] P, Q
 
-        P = logistic(-1*(transition.seqparam['kozak'] * data.codon_id['kozak']
-            + transition.seqparam['start'][data.codon_id['start']]))
-        Q = logistic(-1*transition.seqparam['stop'][data.codon_id['stop']])
+        P = logistic(-1*(transition['seqparam']['kozak'] * data.codon_id['kozak']
+            + transition['seqparam']['start'][data.codon_id['start']]))
+        Q = logistic(-1*transition['seqparam']['stop'][data.codon_id['stop']])
 
         logprior = utils.nplog([1,0,0,0,0,0,0,0,0])
         swapidx = np.array([2,3,6,7]).astype(np.uint8)
@@ -661,7 +666,11 @@ class Transition(object):
 
     def _serialize(self):
         return {
-            'seqparam': self.seqparam
+            'seqparam': {
+                'kozak': list(self.seqparam['kozak']),
+                'start': list(self.seqparam['start']),
+                'stop': list(self.seqparam['stop'])
+            }
         }
 
     # @cython.boundscheck(False)
@@ -1631,6 +1640,26 @@ def infer_coding_sequence(observations, codon_id, scales, mappability, transitio
     # cdef double scale
     # cdef list data, states, frames
     # cdef np.ndarray observation, mappable
+
+
+    """
+    Inflate serialized transition and emission dictionaries
+    """
+    transition = {
+        'seqparam': {
+            'kozak': np.array(transition['seqparam']['kozak']),
+            'start': np.array(transition['seqparam']['start']),
+            'stop': np.array(transition['seqparam']['stop'])
+        }
+    }
+
+    emission = {
+        'S': emission['S'],
+        'logperiodicity': np.array(emission['logperiodicity']['data']).reshape(emission['logperiodicity']['shape']),
+        'rescale': np.array(emission['rescale']['data']).reshape(emission['rescale']['shape']),
+        'rate_alpha': np.array(emission['rate_alpha']['data']).reshape(emission['rate_alpha']['shape']),
+        'rate_beta': np.array(emission['rate_beta']['data']).reshape(emission['rate_beta']['shape'])
+    }
 
     data = [
         Data(observation, id, scale, mappable)

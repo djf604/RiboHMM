@@ -220,7 +220,7 @@ def learn(options):
     }
     with open(options.model_file, 'w') as model_file_out:
         import json
-        model_file_out.write(json.dumps(serialized_model) + '\n')
+        model_file_out.write(json.dumps(serialized_model, indent=2) + '\n')
 
 if __name__=="__main__":
 
