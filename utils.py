@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import re
 from functools import reduce
@@ -117,3 +118,30 @@ def outsum(arr):
     return thesum
 
 
+def get_read_lengths():
+    return READ_LENGTHS
+
+
+
+def which(program):
+    """
+    Get the path of an executable program in the $PATH
+    environment variable
+    :param program: str Name of the executable
+    :return: str Full path to the executable in $PATH or
+    None if not found
+    """
+    def _is_exe(fpath):
+        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+
+    fpath, fname = os.path.split(program)
+    if fpath and _is_exe(program):
+            return program
+
+    for path in os.environ['PATH'].split(os.pathsep):
+        path = path.strip('"')
+        exe_file = os.path.join(path, program)
+        if _is_exe(exe_file):
+            return exe_file
+
+    return None

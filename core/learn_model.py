@@ -1,11 +1,10 @@
 import argparse
-import pickle
 import warnings
-import pdb
 
 import numpy as np
 
-import load_data, ribohmm_pure, seq_pure as seq, utils
+from ribohmm.contrib import load_data
+from ribohmm.core import ribohmm, seq
 
 # ignore warnings with these expressions
 warnings.filterwarnings('ignore', '.*overflow encountered.*',)
@@ -73,7 +72,7 @@ def parse_args():
 
     return options
 
-def select_transcripts(options):
+def select_transcripts(transcript_models_dict, ribo_track, batch_size):
     """
     Select and return top k transcripts based on the transcript translation
     rate, where k = options.batch
@@ -82,16 +81,16 @@ def select_transcripts(options):
     """
     
     # load all transcripts
-    print('Loading GTF')
-    transcript_models_dict = load_data.load_gtf(options.gtf_file)
+    # print('Loading GTF')
+    # transcript_models_dict = load_data.load_gtf(transcriptome_gtf)
     """This is a list of load_data.Transcript objects"""
     print('Getting Transcript objects')
-    transcript_models = transcript_models_dict.values()
+    transcript_models = list(transcript_models_dict.values())
     T = len(transcript_models)
 
     # get translation level in all transcripts
     print('Loading riboseq file')
-    ribo_track = load_data.RiboSeq(options.riboseq_file)
+    # ribo_track = load_data.RiboSeq(riboseq_tabix_prefix, read_lengths)
     """
     For each transcript, divide the total number of counts in the exons by the length of all exons
     """
@@ -136,24 +135,25 @@ def select_transcripts(options):
             transcript_bounds[transcript.chromosome] = [[transcript.start, transcript.stop]]
 
         # select fixed number of transcripts for learning
-        if len(transcripts)>=options.batch:
+        if len(transcripts) >= batch_size:
             break
 
     return transcripts
 
-def learn(options):
+def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, ribo_track,
+                           rnaseq_track, scale_beta, restarts, mintol, read_lengths):
 
     # select transcripts for learning parameters
-    transcripts = select_transcripts(options)
+    # transcripts = select_transcripts(options)
     """Won't T = options.batch always? I guess it could be less"""
     T = len(transcripts)
     print("%d transcripts selected"%T)
 
     # load sequence of transcripts and transform sequence data
     print('Loading genome')
-    genome_track = load_data.Genome(options.fasta_file, options.mappability_file)
-    codon_flags = []
-    total_bases = 0
+    # genome_track = load_data.Genome(reference_fasta, mappability_tabix_prefix)
+    codon_flags, total_bases = list(), 0
+
     print('Getting RNAseq sequences of transcripts')
     for i, rna_sequence in enumerate(genome_track.get_sequence(transcripts)):
         try:
@@ -166,28 +166,34 @@ def learn(options):
     print("%d bases covered"%total_bases)
 
     # load footprint count data in transcripts
-    ribo_track = load_data.RiboSeq(options.riboseq_file)
+    """
+    This loading Riboseq is redundant
+    """
+    # ribo_track = load_data.RiboSeq(riboseq_tabix_prefix, read_lengths)
     footprint_counts = ribo_track.get_counts(transcripts)
     ribo_track.close()
-    for i,r in enumerate(utils.READ_LENGTHS):
+    for i,r in enumerate(read_lengths):
         print("%d ribosome footprints of length %d bp"%(np.sum([c[:,i].sum() for c in footprint_counts]),r))
 
     # load transcript-level rnaseq RPKM
-    if options.rnaseq_file is None:
+    """
+    Ensure this is still correct now that the rnaseq path isn't coming from argparse
+    """
+    if rnaseq_track is None:
         rna_counts = np.ones((T,), dtype='float')
     else:
-        rnaseq_track = load_data.RnaSeq(options.rnaseq_file)
+        # rnaseq_track = load_data.RnaSeq(rnaseq_tabix)
         rna_counts = rnaseq_track.get_total_counts(transcripts)
         rnaseq_track.close()
     print("median RNA-seq RPKM in data is %.2e"%(np.sum(rna_counts)))
 
     # load mappability of transcripts; transform mappability to missingness
-    if options.mappability_file is not None:
+    if mappability_tabix_prefix is not None:
         rna_mappability = genome_track.get_mappability(transcripts)
     else:
         rna_mappability = [np.ones(c.shape,dtype='bool') for c in footprint_counts]
     genome_track.close()
-    for i,r in enumerate(utils.READ_LENGTHS):
+    for i,r in enumerate(read_lengths):
         print('{} bases have missing counts for {} bp footprints'.format(
             np.sum([
                 m.shape[0] - np.sum(m[:, i])
@@ -201,9 +207,9 @@ def learn(options):
         # ),r))
 
     # run the learning algorithm
-    transition, emission, L = ribohmm_pure.learn_parameters(footprint_counts, codon_flags, \
-                           rna_counts, rna_mappability, options.scale_beta, \
-                           options.restarts, options.mintol)
+    transition, emission, L = ribohmm.learn_parameters(footprint_counts, codon_flags, \
+                                               rna_counts, rna_mappability, scale_beta, \
+                                                restarts, mintol)
 
     # output model parameters
     # handle = open(options.model_file,'w')
@@ -218,12 +224,5 @@ def learn(options):
         'transition': transition._serialize(),
         'emission': emission._serialize()
     }
-    with open(options.model_file, 'w') as model_file_out:
-        import json
-        model_file_out.write(json.dumps(serialized_model, indent=2) + '\n')
 
-if __name__=="__main__":
-
-    options = parse_args()
-
-    learn(options)
+    return serialized_model

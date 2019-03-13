@@ -1,13 +1,11 @@
 import argparse
 import warnings
 import gzip
-import pdb
-import os
 
 import numpy as np
 import pysam
 
-from load_data import load_gtf
+from contrib.load_data import load_gtf
 from utils import make_complement
 
 # ignore warnings with these expressions

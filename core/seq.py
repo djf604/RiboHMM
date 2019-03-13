@@ -10,13 +10,31 @@ STARTS = dict([(s,i+1) for i,s in enumerate(STARTCODONS)])
 STOPS = dict([(s,i+1) for i,s in enumerate(STOPCODONS)])
 
 # load pre-computed Kozak model
-kozak_model = np.load("data/kozak_model.npz")
-FREQ = dict([(c,np.log2(row)) for c,row in zip(['A','U','G','C'], kozak_model['freq'])])
-ALTFREQ = dict([(c,np.log2(row)) for c,row in zip(['A','U','G','C'], kozak_model['altfreq'])])
-for c in ['A','U','G','C']:
-    FREQ[c][9:12] = ALTFREQ[c][9:12]
+# kozak_model = np.load("data/kozak_model.npz")
+# FREQ = dict([(c,np.log2(row)) for c,row in zip(['A','U','G','C'], kozak_model['freq'])])
+# ALTFREQ = dict([(c,np.log2(row)) for c,row in zip(['A','U','G','C'], kozak_model['altfreq'])])
+# for c in ['A','U','G','C']:
+#     FREQ[c][9:12] = ALTFREQ[c][9:12]
+
+
+def inflate_kozak_model(model_path):
+    """
+    Inflates and stores the Kozak model as class attributes of ``RnaSequence``
+    """
+    kozak_model = np.load(model_path)
+    FREQ = dict([(c, np.log2(row)) for c, row in zip(['A', 'U', 'G', 'C'], kozak_model['freq'])])
+    ALTFREQ = dict([(c, np.log2(row)) for c, row in zip(['A', 'U', 'G', 'C'], kozak_model['altfreq'])])
+    for c in ['A', 'U', 'G', 'C']:
+        FREQ[c][9:12] = ALTFREQ[c][9:12]
+
+    RnaSequence._kozak_model_freq = FREQ
+    RnaSequence._kozak_model_altfreq = ALTFREQ
+
 
 class RnaSequence(object):
+    _kozak_model_freq = None
+    _kozak_model_altfreq = None
+
     def __init__(self, sequence):
 
         # cdef str c
@@ -100,24 +118,28 @@ class RnaSequence(object):
             raise
         for f in range(3):
             for s in range(2, int((self.S-f-4-offset) / 3)):
-                score[s,f] = pwm_score(self.sequence[3*s+offset+f-9:3*s+offset+f+4])
+                score[s,f] = RnaSequence.pwm_score(self.sequence[3*s+offset+f-9:3*s+offset+f+4])
 
         return score  # np.array[*, *]
 
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# @cython.nonecheck(False)
-def pwm_score(seq):
+    # @cython.boundscheck(False)
+    # @cython.wraparound(False)
+    # @cython.nonecheck(False)
+    @classmethod
+    def pwm_score(cls, seq):
 
-    # cdef long i
-    # cdef str s
-    # cdef double score
+        # cdef long i
+        # cdef str s
+        # cdef double score
 
-    score = 0
-    for i, s in enumerate(seq):
-        try:
-            score = score + FREQ[s][i] - ALTFREQ[s][i]
-        except KeyError:
-            pass
+        if not (cls._kozak_model_freq and cls._kozak_model_altfreq):
+            raise ValueError('Kozak models have no been loaded')
 
-    return score
+        score = 0
+        for i, s in enumerate(seq):
+            try:
+                score = score + cls._kozak_model_freq[s][i] - cls._kozak_model_altfreq[s][i]
+            except KeyError:
+                pass
+
+        return score

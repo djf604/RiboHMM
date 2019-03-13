@@ -93,3 +93,8 @@ parser.print_help()
 
 # Convert bams to tabix
 
+"""
+1) Convert input bams to tabix
+2) 
+"""
+

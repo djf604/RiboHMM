@@ -84,13 +84,17 @@ class Genome():
 
 class RiboSeq():
 
-    def __init__(self, file_prefix):
-        print(file_prefix)
+    def __init__(self, file_prefix, read_lengths):
 
-        self._fwd_handles = [pysam.TabixFile(file_prefix+'_fwd.%d.gz'%r)
-                             for r in utils.READ_LENGTHS]
-        self._rev_handles = [pysam.TabixFile(file_prefix+'_rev.%d.gz'%r)
-                             for r in utils.READ_LENGTHS]
+        # self._fwd_handles = [pysam.TabixFile(file_prefix+'_fwd.%d.gz'%r)
+        #                      for r in utils.READ_LENGTHS]
+        self._fwd_handles = [pysam.TabixFile(file_prefix + '_{}.len{}.tbx.gz'.format('fwd', r))
+                             for r in read_lengths]
+        # self._rev_handles = [pysam.TabixFile(file_prefix+'_rev.%d.gz'%r)
+        #                      for r in utils.READ_LENGTHS]
+        self._rev_handles = [pysam.TabixFile(file_prefix + '_{}.len{}.tbx.gz'.format('rev', r))
+                             for r in read_lengths]
+        self._read_lengths = read_lengths
 
     def get_counts(self, transcripts):
         """
@@ -103,13 +107,28 @@ class RiboSeq():
         for transcript in transcripts:
 
             """utils.READ_LENGTHS = [28, 29, 30, 31]"""
-            rcounts = [np.zeros(transcript.mask.shape, dtype='int') for r in utils.READ_LENGTHS]
+            rcounts = [np.zeros(transcript.mask.shape, dtype='int') for r in self._read_lengths]
+
+            """
+            Skip tabix iters that throw exception
+            """
+            tbx_iters = list()
             if transcript.strand=='+':
-                tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
-                    for handle in self._fwd_handles]
+                for handle in self._fwd_handles:
+                    try:
+                        tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
+                    except:
+                        pass
+                # tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
+                #     for handle in self._fwd_handles]
             else:
-                tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
-                    for handle in self._rev_handles]
+                for handle in self._rev_handles:
+                    try:
+                        tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
+                    except:
+                        pass
+                # tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
+                #     for handle in self._rev_handles]
 
             for tbx_iter,counts in zip(tbx_iters,rcounts):
                 """counts is one of the above np.zeros() arrays"""
@@ -158,13 +177,28 @@ class RiboSeq():
         exon_counts = []
         for transcript in transcripts:
 
-            rcounts = [np.zeros(transcript.mask.shape, dtype='int') for r in utils.READ_LENGTHS]
+            rcounts = [np.zeros(transcript.mask.shape, dtype='int') for r in self._read_lengths]
+
+            """
+            Ignore those transcripts for which tabix throws an exception
+            """
+            tbx_iters = list()
             if transcript.strand=='+':
-                tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
-                    for handle in self._fwd_handles]
+                for handle in self._fwd_handles:
+                    try:
+                        tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
+                    except:
+                        pass
+                # tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
+                #     for handle in self._fwd_handles]
             else:
-                tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
-                    for handle in self._rev_handles]
+                for handle in self._rev_handles:
+                    try:
+                        tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
+                    except:
+                        pass
+                # tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
+                #     for handle in self._rev_handles]
                 # Remove all transcripts if there's an error
                 # Based on transcript ID
 
@@ -192,7 +226,7 @@ class RnaSeq():
 
     def __init__(self, filename):
 
-        self._handle = pysam.TabixFile(filename+'.gz')
+        self._handle = pysam.TabixFile(filename)
         self.total = 0
         for chrom in self._handle.contigs:
             self.total += reduce(lambda x,y: x+y, (int(tbx.split('\t')[3]) for tbx in self._handle.fetch(chrom)))
@@ -202,7 +236,11 @@ class RnaSeq():
         total_counts = []
         for transcript in transcripts:
 
-            tbx_iter = self._handle.fetch(transcript.chromosome, transcript.start, transcript.stop)
+            try:
+                tbx_iter = self._handle.fetch(transcript.chromosome, transcript.start, transcript.stop)
+            except:
+                continue
+
             if transcript.strand=='+':
                 mask = transcript.mask
             else:
@@ -395,12 +433,17 @@ def load_gtf(filename):
 
     # generate transcript models
     keys = transcripts.keys()
+    no_exons = list()
     for key in keys:
         try:
             transcripts[key].generate_transcript_model()
         except ValueError:
             """If this happens that means there were no exons in the Transcript object"""
-            del transcripts[key]
+            print('There were no exons in Transcript {}'.format(key))
+            no_exons.append(key)
+            # del transcripts[key]
+    for no_exon in no_exons:
+        del transcripts[no_exon]
 
     return transcripts
 

@@ -667,7 +667,7 @@ class Transition(object):
     def _serialize(self):
         return {
             'seqparam': {
-                'kozak': list(self.seqparam['kozak']),
+                'kozak': self.seqparam['kozak'],
                 'start': list(self.seqparam['start']),
                 'stop': list(self.seqparam['stop'])
             }
@@ -1014,7 +1014,10 @@ class Emission(object):
 
             for s in range(self.S):
 
-                for j,mask in utils.binarize.iteritems():
+                """
+                TODO Need to use six here
+                """
+                for j,mask in utils.binarize.items():
                 
                     self.rescale[r,s,j] = np.sum(self.periodicity[r,s,mask])
 

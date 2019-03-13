@@ -1,12 +1,13 @@
+import os
 import argparse
-import pickle
 import warnings
-import pdb
 import json
 
 import numpy as np
 
-import load_data, ribohmm_pure, seq_pure as seq, utils
+import core, utils
+from contrib import load_data
+from core import seq as seq
 
 # ignore warnings with these expressions
 warnings.filterwarnings('ignore', '.*overflow encountered.*',)
@@ -93,7 +94,8 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
 
     return None
 
-def infer(options):
+def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_prefix, ribo_track,
+          rnaseq_track, output_directory):
 
     # load the model
     # handle = open(options.model_file, 'rb')
@@ -104,23 +106,23 @@ def infer(options):
     """
     Load the model from JSON
     """
-    model_params = json.load(open(options.model_file))
+    model_params = json.load(open(model_file))
 
     # load transcripts
-    transcript_models = load_data.load_gtf(options.gtf_file)
-    transcript_names = transcript_models.keys()
+    # transcript_models = load_data.load_gtf(transcriptome_gtf)
+    transcript_names = list(transcript_models.keys())
     N = len(transcript_names)
     n = int(np.ceil(N/1000))
     
     # load data tracks
-    genome_track = load_data.Genome(options.fasta_file, options.mappability_file)
-    ribo_track = load_data.RiboSeq(options.riboseq_file)
-    if options.rnaseq_file is not None:
-        rnaseq_track = load_data.RnaSeq(options.rnaseq_file)
+    # genome_track = load_data.Genome(genome_fasta, mappability_tabix_prefix)
+    # ribo_track = load_data.RiboSeq(riboseq_tabix_prefix, read_lengths)
+    # if rnaseq_tabix is not None:
+    #     rnaseq_track = load_data.RnaSeq(rnaseq_tabix)
 
     # open output file handle
     # file in bed12 format
-    handle = open(options.output_file,'w')
+    handle = open(os.path.join(output_directory, 'inferred_CDS.bed'),'w')
     towrite = ["chromosome", "start", "stop", "transcript_id", 
                "posterior", "strand", "cdstart", "cdstop", 
                "protein_seq", "num_exons", "exon_sizes", "exon_starts"]
@@ -156,13 +158,13 @@ def infer(options):
             footprint_counts = ribo_track.get_counts(transcripts)
 
             # load transcript-level rnaseq RPKM
-            if options.rnaseq_file is None:
+            if rnaseq_track is None:
                 rna_counts = np.ones((T,), dtype='float')
             else:
                 rna_counts = rnaseq_track.get_total_counts(transcripts)
 
             # load mappability of transcripts; transform mappability to missingness
-            if options.mappability_file is not None:
+            if mappability_tabix_prefix is not None:
                 rna_mappability = genome_track.get_mappability(transcripts)
             else:
                 rna_mappability = [np.ones(c.shape,dtype='bool') for c in footprint_counts]
@@ -170,8 +172,8 @@ def infer(options):
             # run the learning algorithm
             # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
             #                        rna_counts, rna_mappability, transition, emission)
-            states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
-                                   rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
+            states, frames = core.infer_coding_sequence(footprint_counts, codon_flags, \
+                                                        rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
 
             # write results
             ig = [write_inferred_cds(handle, transcript, state, frame, rna_sequence) \
@@ -200,13 +202,13 @@ def infer(options):
             footprint_counts = ribo_track.get_counts(transcripts)
 
             # load transcript-level rnaseq RPKM
-            if options.rnaseq_file is None:
+            if rnaseq_track is None:
                 rna_counts = np.ones((T,), dtype='float')
             else:
                 rna_counts = rnaseq_track.get_total_counts(transcripts)
 
             # load mappability of transcripts; transform mappability to missingness
-            if options.mappability_file is not None:
+            if mappability_tabix_prefix is not None:
                 rna_mappability = genome_track.get_mappability(transcripts)
             else:
                 rna_mappability = [np.ones(c.shape,dtype='bool') for c in footprint_counts]
@@ -214,8 +216,8 @@ def infer(options):
             # run the learning algorithm
             # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
             #                        rna_counts, rna_mappability, transition, emission)
-            states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
-                                   rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
+            states, frames = core.infer_coding_sequence(footprint_counts, codon_flags, \
+                                                        rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
 
             # write results
             ig = [write_inferred_cds(handle, transcript, state, frame, rna_sequence) \
@@ -223,13 +225,13 @@ def infer(options):
 
     handle.close()
     ribo_track.close()
-    if options.rnaseq_file is not None:
+    if rnaseq_track is not None:
         rnaseq_track.close()
     genome_track.close()
 
 
-if __name__=="__main__":
-
-    options = parse_args()
-
-    infer(options)
+# if __name__=="__main__":
+#
+#     options = parse_args()
+#
+#     infer(options)
