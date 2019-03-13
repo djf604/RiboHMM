@@ -1,9 +1,5 @@
-import time
-import re
-import pdb
-
 import numpy as np
-from utils import STARTCODONS, STOPCODONS
+from ribohmm.utils import STARTCODONS, STOPCODONS
 
 # set regex for start and stop codons
 STARTS = dict([(s,i+1) for i,s in enumerate(STARTCODONS)])

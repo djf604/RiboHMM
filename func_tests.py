@@ -1,5 +1,5 @@
 import subprocess
-import contrib.bam_to_tbi as bam_to_tbi
+from ribohmm import contrib as bam_to_tbi
 
 
 class TestBamToTbi(object):

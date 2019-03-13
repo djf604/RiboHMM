@@ -1,9 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plot
 import pickle
-import pdb
 
-import utils
+from ribohmm import utils
 
 transitions = []
 emissions = []

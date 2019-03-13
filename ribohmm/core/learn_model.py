@@ -3,7 +3,6 @@ import warnings
 
 import numpy as np
 
-from ribohmm.contrib import load_data
 from ribohmm.core import ribohmm, seq
 
 # ignore warnings with these expressions
@@ -208,8 +207,8 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
 
     # run the learning algorithm
     transition, emission, L = ribohmm.learn_parameters(footprint_counts, codon_flags, \
-                                               rna_counts, rna_mappability, scale_beta, \
-                                                restarts, mintol)
+                                                       rna_counts, rna_mappability, scale_beta, \
+                                                       restarts, mintol)
 
     # output model parameters
     # handle = open(options.model_file,'w')

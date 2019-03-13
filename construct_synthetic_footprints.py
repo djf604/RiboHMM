@@ -5,8 +5,8 @@ import gzip
 import numpy as np
 import pysam
 
-from contrib.load_data import load_gtf
-from utils import make_complement
+from ribohmm.contrib import load_gtf
+from ribohmm.utils import make_complement
 
 # ignore warnings with these expressions
 warnings.filterwarnings('ignore', '.*overflow encountered.*',)

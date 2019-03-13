@@ -5,9 +5,8 @@ import json
 
 import numpy as np
 
-import core, utils
-from contrib import load_data
-from core import seq as seq
+from ribohmm import core, utils
+from ribohmm.core import seq as seq
 
 # ignore warnings with these expressions
 warnings.filterwarnings('ignore', '.*overflow encountered.*',)

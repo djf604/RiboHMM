@@ -2,9 +2,9 @@ import numpy as np
 import pysam
 import subprocess
 import argparse
-import os, pdb
+import os
 
-from utils import READ_LENGTHS
+from ribohmm.utils import READ_LENGTHS
 
 MIN_MAP_QUAL = 10
 

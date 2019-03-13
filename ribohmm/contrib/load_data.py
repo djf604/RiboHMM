@@ -1,10 +1,8 @@
 import numpy as np
 import pysam
-import pdb
 from functools import reduce
 
-import utils
-
+from ribohmm import utils
 
 MIN_MAP_QUAL = 10
 
@@ -13,8 +11,8 @@ class Genome():
     def __init__(self, fasta_filename, map_filename):
 
         self._seq_handle = pysam.FastaFile(fasta_filename)
-        self._map_handles = [pysam.TabixFile(map_filename+'_%d.gz'%r) 
-                            for r in utils.READ_LENGTHS]
+        self._map_handles = [pysam.TabixFile(map_filename+'_%d.gz'%r)
+                             for r in utils.READ_LENGTHS]
 
     def get_sequence(self, transcripts):
         """
@@ -50,7 +48,7 @@ class Genome():
         for transcript in transcripts:
 
             # get mappable positions
-            mappables = [np.zeros(transcript.mask.shape, dtype='bool') 
+            mappables = [np.zeros(transcript.mask.shape, dtype='bool')
                          for r in utils.READ_LENGTHS]
             tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop)
                          for handle in self._map_handles]
