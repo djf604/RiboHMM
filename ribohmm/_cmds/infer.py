@@ -108,7 +108,7 @@ def main(args=None):
         if not os.path.isfile(args['riboseq_bam'] + '.bai'):
             print('Generating index for {}'.format(args['riboseq_bam']))
             pysam.index(args['riboseq_bam'])
-    if not args['rnaseq_bam_index'] or not os.path.isfile(args['rnaseq_bam_index']):
+    if args['rnaseq_bam'] and (not args['rnaseq_bam_index'] or not os.path.isfile(args['rnaseq_bam_index'])):
         if not os.path.isfile(args['rnaseq_bam'] + '.bai'):
             print('Generating index for {}'.format(args['rnaseq_bam']))
             pysam.index(args['rnaseq_bam'])
