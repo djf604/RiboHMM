@@ -1,4 +1,5 @@
 import numpy as np
+from pkg_resources import Requirement, resource_listdir, resource_filename
 from ribohmm.utils import STARTCODONS, STOPCODONS
 
 # set regex for start and stop codons
@@ -13,10 +14,27 @@ STOPS = dict([(s,i+1) for i,s in enumerate(STOPCODONS)])
 #     FREQ[c][9:12] = ALTFREQ[c][9:12]
 
 
-def inflate_kozak_model(model_path):
+# def get_util_scripts():
+#     util_scripts = dict()
+#     for util_script_filename in resource_listdir(Requirement.parse('swiftseq'), 'swiftseq/util_scripts'):
+#         util_name = util_script_filename.rsplit('.', 1)[FIRST]
+#         util_full_filepath = resource_filename(Requirement.parse('swiftseq'), 'swiftseq/util_scripts/{}'.format(
+#             util_script_filename
+#         ))
+#         util_scripts['util_{}'.format(util_name)] = util_full_filepath
+#     return util_scripts
+
+
+def get_resource_kozak_path():
+    return resource_filename(Requirement.parse('ribohmm'), 'ribohmm/include/kozak_model.npz')
+
+
+def inflate_kozak_model(model_path=None):
     """
     Inflates and stores the Kozak model as class attributes of ``RnaSequence``
     """
+    if model_path is None:
+        model_path = get_resource_kozak_path()
     kozak_model = np.load(model_path)
     FREQ = dict([(c, np.log2(row)) for c, row in zip(['A', 'U', 'G', 'C'], kozak_model['freq'])])
     ALTFREQ = dict([(c, np.log2(row)) for c, row in zip(['A', 'U', 'G', 'C'], kozak_model['altfreq'])])

@@ -18,7 +18,8 @@ def convert_rnaseq(bam_file, output_directory, bgzip_path, tabix_path):
     :param tabix_path: str Path to tabix executable
     """
     count_file = os.path.basename(os.path.splitext(bam_file)[BEFORE_EXT])
-    tabix_output_path = os.path.join(output_directory, count_file)
+    os.makedirs(os.path.join(output_directory, 'tabix'), exist_ok=True)
+    tabix_output_path = os.path.join(output_directory, 'tabix', count_file)
     with pysam.AlignmentFile(bam_file, 'rb') as sam_handle, open(tabix_output_path, 'w') as count_handle:
 
         for cname, clen in zip(sam_handle.references, sam_handle.lengths):
@@ -58,8 +59,9 @@ def convert_riboseq(bam_file, output_directory, bgzip_path, tabix_path, read_len
     :param tabix_path: str Path to tabix executable
     """
     # file names and handles
-    count_file_path = os.path.join(output_directory,
-                                   os.path.basename(os.path.splitext(bam_file)[BEFORE_EXT]) + '_{}.len{}.tbx')
+    os.makedirs(os.path.join(output_directory, 'tabix'), exist_ok=True)
+    count_file_path = os.path.join(output_directory, 'tabix',
+                                   os.path.basename(os.path.splitext(bam_file)[BEFORE_EXT]) + '.{}.len{}.tbx')
     # rev_count_file = os.path.splitext(bam_file)[BEFORE_EXT] + '_rev.len{}.tbx'
     sam_handle = pysam.AlignmentFile(bam_file, 'rb')
     # fwd_handle = {r: open('{}.{}'.format(fwd_count_file, r), 'w') for r in read_lengths}
@@ -119,17 +121,3 @@ def convert_riboseq(bam_file, output_directory, bgzip_path, tabix_path, read_len
               'reverse strand is {}.gz'.format(count_file_path.format('rev', r)))
 
     return os.path.join(output_directory, os.path.splitext(bam_file)[BEFORE_EXT])
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='convert bam data format to bigWig data format, '
-                                                 'for ribosome profiling and RNA-seq data')
-    parser.add_argument('--dtype', choices=('rnaseq', 'riboseq'), default='riboseq',
-                        help="specifies the type of assay (default: riboseq)")
-    parser.add_argument('bam_file', action='store', help='path to bam input file')
-    args = vars(parser.parse_args())
-
-    if args['dtype'] == 'riboseq':
-        convert_riboseq(args['bam_file'], which('bgzip'), which('tabix'))
-    else:
-        convert_rnaseq(args['bam_file'], which('bgzip'), which('tabix'))

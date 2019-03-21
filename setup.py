@@ -8,6 +8,10 @@ setup(
     author='Dominic Fitzgerald/Anil Raj',
     author_email='dominicfitzgerald11@gmail.com',
     packages=find_packages(),
+    include_package_data=True,
+    package_data={
+            'ribohmm': ['include/*']
+        },
     entry_points={
         'console_scripts': ['ribohmm = ribohmm:execute_from_command_line']
     },
