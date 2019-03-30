@@ -6,7 +6,6 @@ import pysam
 
 from ribohmm.contrib.bam_to_tbi import convert_riboseq, convert_rnaseq
 from ribohmm.core.learn_model import select_transcripts, learn_model_parameters
-from ribohmm.core.infer_CDS import infer_CDS
 from ribohmm.core.seq import inflate_kozak_model
 from ribohmm.utils import which
 from ribohmm.contrib import load_data
@@ -107,7 +106,7 @@ def main(args=None):
     # Generate major objects once
     print('\n######\nCreating biological models\n######')
     print('Inflating genome model')
-    genome_track = load_data.Genome(args['reference_fasta'], args['mappability_tabix_prefix'])
+    genome_track = load_data.Genome(args['reference_fasta'], args['mappability_tabix_prefix'], args['read_length'])
     print('Inflating transcript models ')
     gtf_model = load_data.load_gtf(args['transcriptome_gtf'])
     print('Inflating riboseq model')

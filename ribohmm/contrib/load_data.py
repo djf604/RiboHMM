@@ -2,17 +2,17 @@ import numpy as np
 import pysam
 from functools import reduce
 
-from ribohmm import utils
+import ribohmm.utils as utils
 
 MIN_MAP_QUAL = 10
 
 class Genome():
 
-    def __init__(self, fasta_filename, map_filename):
+    def __init__(self, fasta_filename, map_filename, read_lengths):
 
         self._seq_handle = pysam.FastaFile(fasta_filename)
         self._map_handles = [pysam.TabixFile(map_filename+'_%d.gz'%r)
-                             for r in utils.READ_LENGTHS]
+                             for r in read_lengths]
 
     def get_sequence(self, transcripts):
         """
@@ -444,5 +444,3 @@ def load_gtf(filename):
         del transcripts[no_exon]
 
     return transcripts
-
-        
