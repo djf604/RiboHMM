@@ -43,7 +43,7 @@ def select_transcripts(transcript_models_dict, ribo_track, batch_size):
  
         # check if all exons have at least 5 footprints
         exon_counts = ribo_track.get_exon_total_counts([transcript])[0]
-        if np.any(exon_counts<5):
+        if np.any(exon_counts < 5):
             continue
 
         # check if transcript overlaps any previous transcript
@@ -67,6 +67,7 @@ def select_transcripts(transcript_models_dict, ribo_track, batch_size):
             break
 
     return transcripts
+
 
 def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, ribo_track,
                            rnaseq_track, scale_beta, restarts, mintol, read_lengths):
@@ -133,8 +134,8 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
         rna_counts,
         rna_mappability,
         scale_beta,
-        restarts,
-        mintol
+        mintol,
+        read_lengths
     )
 
     """

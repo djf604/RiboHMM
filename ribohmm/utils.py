@@ -3,7 +3,7 @@ import numpy as np
 import re
 from functools import reduce
 
-READ_LENGTHS = [28, 29, 30, 31]
+# READ_LENGTHS = [28, 29, 30, 31]
 STARTCODONS = ['AUG','CUG','GUG','UUG','AAG','ACG','AGG','AUA','AUC','AUU']
 STOPCODONS = ['UAA','UAG','UGA']
 
@@ -118,8 +118,8 @@ def outsum(arr):
     return thesum
 
 
-def get_read_lengths():
-    return READ_LENGTHS
+# def get_read_lengths():
+#     return READ_LENGTHS
 
 
 

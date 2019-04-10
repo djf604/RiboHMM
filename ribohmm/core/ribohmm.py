@@ -11,6 +11,7 @@ from cvxopt import solvers
 import time, pdb
 
 from ribohmm import utils
+from numba import njit
 
 solvers.options['maxiters'] = 300
 solvers.options['show_progress'] = False
@@ -20,6 +21,7 @@ logistic = lambda x: 1./(1+np.exp(x))
 # @cython.wraparound(False)
 # @cython.nonecheck(False)
 # cdef double normalize(np.ndarray[np.float64_t, ndim=1] x):
+@njit
 def normalize(x):
     """Compute the log-sum-exp of a real-valued vector,
        avoiding numerical overflow issues.
@@ -54,8 +56,7 @@ def outsum(arr):
     """
 
     # cdef np.ndarray thesum
-    thesum = sum([a for a in arr])
-    return thesum
+    return sum([a for a in arr])
 
 class Data:
 
@@ -110,6 +111,7 @@ class Data:
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef compute_log_probability(self, Emission emission):
+    @njit
     def compute_log_probability(self, emission):
         """Computes the log probability of the data given model parameters.
            Log probability of data is the sum of log probability at positions
@@ -140,66 +142,76 @@ class Data:
             # for r from 0 <= r < self.R:
             for r in range(self.R):
 
-                log_probability = np.zeros((self.M,emission['S']), dtype=np.float64)
-                dat = self.obs[f:3*self.M+f,r].reshape(self.M,3)
+                log_probability = np.zeros((self.M, emission['S']), dtype=np.float64)
+                dat = self.obs[f:3 * self.M + f, r].reshape(self.M, 3)
 
                 # probability under periodicity model, accounting for mappability
                 # triplets with at most 1 unmappable position
-                mapAB = np.any(self.missingness_type[r,f,:] == misstypes,0)
-                log_probability[mapAB,:] = (gammaln(self.total[f,mapAB,r]+1) -
-                                           np.sum(gammaln(dat[mapAB,:]+1),1)).reshape(mapAB.sum(),1) + \
-                                           np.dot(dat[mapAB,:], emission['logperiodicity'][r].T)
-                for mtype in misstypes[:3,0]:
-                    mapAB = self.missingness_type[r,f,:]==mtype
-                    log_probability[mapAB,:] -= np.dot(self.total[f,mapAB,r:r+1],
-                                                       utils.nplog(emission['rescale'][r:r + 1, :, mtype]))
+                mapAB = np.any(self.missingness_type[r, f, :] == misstypes, 0)
+                log_probability[mapAB, :] = (
+                    gammaln(self.total[f, mapAB, r] + 1) -
+                    np.sum(gammaln(dat[mapAB, :] + 1), 1)
+                ).reshape(mapAB.sum(), 1) + np.dot(dat[mapAB, :], emission['logperiodicity'][r].T)
+
+                for mtype in misstypes[:3, 0]:
+                    mapAB = self.missingness_type[r, f, :] == mtype
+                    log_probability[mapAB, :] -= np.dot(
+                        self.total[f, mapAB, r:r + 1],
+                        utils.nplog(emission['rescale'][r:r + 1, :, mtype])
+                    )
 
                 # probability under occupancy model, accounting for mappability
                 alpha = emission['rate_alpha'][r]
                 beta = emission['rate_beta'][r]
-                rescale = emission['rescale'][r,:,self.missingness_type[r,f,:]]
-                total = self.total[f,:,r:r+1]
-                rate_log_probability = alpha * beta * utils.nplog(beta) + \
-                                       gammaln(alpha*beta + total) - \
-                                       gammaln(alpha*beta) - \
-                                       gammaln(total + 1) + \
-                                       total * utils.nplog(self.scale * rescale) - \
-                                       (alpha*beta + total) * utils.nplog(beta + self.scale * rescale)
+                rescale = emission['rescale'][r, :, self.missingness_type[r, f, :]]
+                total = self.total[f, :, r:r + 1]
+                rate_log_probability = (
+                    alpha * beta * utils.nplog(beta) +
+                    gammaln(alpha*beta + total) -
+                    gammaln(alpha*beta) -
+                    gammaln(total + 1) +
+                    total * utils.nplog(self.scale * rescale) -
+                    (alpha * beta + total) * utils.nplog(beta + self.scale * rescale)
+                )
 
                 # ensure that triplets with all positions unmappable
                 # do not contribute to the data probability
-                mask = self.missingness_type[r,f,:]==0
-                rate_log_probability[mask,:] = 0
+                mask = self.missingness_type[r, f, :] == 0
+                rate_log_probability[mask, :] = 0
                 self.log_probability[f] += log_probability + rate_log_probability
 
                 # likelihood of extra positions in transcript
                 # for l from 0 <= l < f:
                 for l in range(f):
-                    if self.mappable[l,r]:
-                        self.extra_log_probability[f] += alpha[0] * beta[0] * utils.nplog(beta[0]) - \
-                                                         (alpha[0]*beta[0]+self.obs[l,r]) * utils.nplog(beta[0] + self.scale / 3.) + \
-                                                         gammaln(alpha[0]*beta[0]+self.obs[l,r]) - \
-                                                         gammaln(alpha[0]*beta[0]) + \
-                                                         self.obs[l,r] * utils.nplog(self.scale / 3.) - \
-                                                         gammaln(self.obs[l,r]+1)
+                    if self.mappable[l, r]:
+                        self.extra_log_probability[f] += (
+                            alpha[0] * beta[0] * utils.nplog(beta[0]) -
+                            (alpha[0] * beta[0] + self.obs[l, r]) *
+                            utils.nplog(beta[0] + self.scale / 3.) +
+                            gammaln(alpha[0] * beta[0]+self.obs[l, r]) -
+                            gammaln(alpha[0] * beta[0]) +
+                            self.obs[l, r] * utils.nplog(self.scale / 3.) -
+                            gammaln(self.obs[l, r] + 1)
+                        )
                 # for l from 3*self.M+f <= l < self.L:
-                for l in range(3*self.M+f, self.L):
+                for l in range(3 * self.M + f, self.L):
                     if self.mappable[l,r]:
-                        self.extra_log_probability[f] += alpha[8] * beta[8] * utils.nplog(beta[8]) - \
-                                                         (alpha[8]*beta[8]+self.obs[l,r]) * utils.nplog(beta[8] + self.scale / 3.) + \
-                                                         gammaln(alpha[8]*beta[8]+self.obs[l,r]) - \
-                                                         gammaln(alpha[8]*beta[8]) + \
-                                                         self.obs[l,r] * utils.nplog(self.scale / 3.) - \
-                                                         gammaln(self.obs[l,r]+1)
+                        self.extra_log_probability[f] += (
+                            alpha[8] * beta[8] * utils.nplog(beta[8]) -
+                            (alpha[8] * beta[8] + self.obs[l, r]) *
+                            utils.nplog(beta[8] + self.scale / 3.) +
+                            gammaln(alpha[8] * beta[8] + self.obs[l, r]) -
+                            gammaln(alpha[8] * beta[8]) +
+                            self.obs[l, r] * utils.nplog(self.scale / 3.) -
+                            gammaln(self.obs[l, r] + 1)
+                        )
 
         # check for infs or nans in log likelihood
-        if np.isnan(self.log_probability).any() \
-        or np.isinf(self.log_probability).any():
+        if np.isnan(self.log_probability).any() or np.isinf(self.log_probability).any():
             print('Warning: Inf/Nan in data log likelihood')
             pdb.set_trace()
 
-        if np.isnan(self.extra_log_probability).any() \
-        or np.isinf(self.extra_log_probability).any():
+        if np.isnan(self.extra_log_probability).any() or np.isinf(self.extra_log_probability).any():
             print('Warning: Inf/Nan in extra log likelihood')
             pdb.set_trace()
 
@@ -231,9 +243,9 @@ class Frame(object):
         """
 
         self.posterior = outsum(state.likelihood) + data.extra_log_probability
-        self.posterior = self.posterior-self.posterior.max()
+        self.posterior = self.posterior - self.posterior.max()
         self.posterior = np.exp(self.posterior)
-        self.posterior = self.posterior/self.posterior.sum()
+        self.posterior = self.posterior / self.posterior.sum()
 
     def __reduce__(self):
         return (rebuild_Frame, (self.posterior,))
@@ -260,6 +272,7 @@ class State(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef _forward_update(self, Data data, Transition transition):
+    @njit
     def _forward_update(self, data, transition):
 
         # cdef long f, i, s, m
@@ -274,76 +287,78 @@ class State(object):
         """
 
         logprior = utils.nplog([1, 0, 0, 0, 0, 0, 0, 0, 0])
-        swapidx = np.array([2,3,6,7]).astype(np.uint8)
-        self.alpha = np.zeros((3,self.M,self.S), dtype=np.float64)
-        self.likelihood = np.zeros((self.M,3), dtype=np.float64)
+        swapidx = np.array([2, 3, 6, 7]).astype(np.uint8)
+        self.alpha = np.zeros((3, self.M, self.S), dtype=np.float64)
+        self.likelihood = np.zeros((self.M, 3), dtype=np.float64)
 
-        P = logistic(-1*(transition['seqparam']['kozak'] * data.codon_id['kozak']
-            + transition['seqparam']['start'][data.codon_id['start']]))
-        Q = logistic(-1*transition['seqparam']['stop'][data.codon_id['stop']])
+        P = logistic(
+            -1 * (transition['seqparam']['kozak'] * data.codon_id['kozak'] +
+                  transition['seqparam']['start'][data.codon_id['start']])
+        )
+        Q = logistic(-1 * transition['seqparam']['stop'][data.codon_id['stop']])
 
         # for f from 0 <= f < 3:
         for f in range(3):
 
-            newalpha = logprior + data.log_probability[f,0,:]
+            newalpha = logprior + data.log_probability[f, 0, :]
             L = normalize(newalpha)
             # for s from 0 <= s < self.S:
             for s in range(self.S):
-                self.alpha[f,0,s] = newalpha[s] - L
-            self.likelihood[0,f] = L
+                self.alpha[f, 0, s] = newalpha[s] - L
+            self.likelihood[0, f] = L
 
             # for m from 1 <= m < self.M:
             for m in range(1, self.M):
 
                 # states 2,3,6,7
                 for s in swapidx:
-                    newalpha[s] = self.alpha[f,m-1,s-1] + data.log_probability[f,m,s]
+                    newalpha[s] = self.alpha[f, m - 1, s - 1] + data.log_probability[f, m, s]
 
                 # state 0,1
                 try:
-                    p = self.alpha[f,m-1,0] + log(1-P[m,f])
-                    q = self.alpha[f,m-1,0] + log(P[m,f])
+                    p = self.alpha[f, m - 1, 0] + log(1 - P[m, f])
+                    q = self.alpha[f, m - 1, 0] + log(P[m, f])
                 except ValueError:
-                    if P[m,f]==0.0:
-                        p = self.alpha[f,m-1,0]
+                    if P[m, f] == 0.0:
+                        p = self.alpha[f, m - 1, 0]
                         q = utils.MIN
                     else:
                         p = utils.MIN
-                        q = self.alpha[f,m-1,0]
-                newalpha[0] = p + data.log_probability[f,m,0]
-                newalpha[1] = q + data.log_probability[f,m,1]
+                        q = self.alpha[f, m - 1, 0]
+                newalpha[0] = p + data.log_probability[f, m, 0]
+                newalpha[1] = q + data.log_probability[f, m, 1]
 
                 # state 4
-                p = self.alpha[f,m-1,3]
+                p = self.alpha[f, m - 1, 3]
                 try:
-                    q = self.alpha[f,m-1,4] + log(1-Q[m,f])
+                    q = self.alpha[f, m - 1, 4] + log(1 - Q[m, f])
                 except ValueError:
                     q = utils.MIN
-                if p>q:
-                    newalpha[4] = log(1+exp(q-p)) + p + data.log_probability[f,m,4]
+                if p > q:
+                    newalpha[4] = log(1 + exp(q - p)) + p + data.log_probability[f, m, 4]
                 else:
-                    newalpha[4] = log(1+exp(p-q)) + q + data.log_probability[f,m,4]
+                    newalpha[4] = log(1 + exp(p - q)) + q + data.log_probability[f, m, 4]
 
                 # state 5
                 try:
-                    newalpha[5] = self.alpha[f,m-1,4] + log(Q[m,f]) + data.log_probability[f,m,5]
+                    newalpha[5] = self.alpha[f, m - 1, 4] + log(Q[m, f]) + data.log_probability[f, m, 5]
                 except ValueError:
                     newalpha[5] = utils.MIN
 
                 # state 8
-                p = self.alpha[f,m-1,7]
-                q = self.alpha[f,m-1,8]
-                if p>q:
-                    newalpha[8] = log(1+exp(q-p)) + p + data.log_probability[f,m,8]
+                p = self.alpha[f, m - 1, 7]
+                q = self.alpha[f, m - 1, 8]
+                if p > q:
+                    newalpha[8] = log(1 + exp(q - p)) + p + data.log_probability[f, m, 8]
                 else:
-                    newalpha[8] = log(1+exp(p-q)) + q + data.log_probability[f,m,8]
+                    newalpha[8] = log(1 + exp(p - q)) + q + data.log_probability[f, m, 8]
 
                 L = normalize(newalpha)
                 # for s from 0 <= s < self.S:
                 for s in range(self.S):
-                    self.alpha[f,m,s] = newalpha[s] - L
+                    self.alpha[f, m, s] = newalpha[s] - L
 
-                self.likelihood[m,f] = L
+                self.likelihood[m, f] = L
 
         if np.isnan(self.alpha).any() or np.isinf(self.alpha).any():
             print('Warning: Inf/Nan in forward update step')
@@ -353,6 +368,7 @@ class State(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef _reverse_update(self, Data data, Transition transition):
+    @njit
     def _reverse_update(self, data, transition):
 
         # cdef long f, id, s, m
@@ -361,81 +377,81 @@ class State(object):
         # cdef np.ndarray[np.float64_t, ndim=1] beta, newbeta
         # cdef np.ndarray[np.float64_t, ndim=2] P, Q
 
-        swapidx = np.array([1,2,3,5,6,7]).astype(np.uint8)
-        self.pos_first_moment = np.empty((3,self.M,self.S), dtype=np.float64)
-        self.pos_cross_moment_start = np.empty((3,self.M,2), dtype=np.float64)
+        swapidx = np.array([1, 2, 3, 5, 6, 7]).astype(np.uint8)
+        self.pos_first_moment = np.empty((3, self.M, self.S), dtype=np.float64)
+        self.pos_cross_moment_start = np.empty((3, self.M, 2), dtype=np.float64)
 
-        P = logistic(-1*(transition.seqparam['kozak'] * data.codon_id['kozak']
-            + transition.seqparam['start'][data.codon_id['start']]))
-        Q = logistic(-1*transition.seqparam['stop'][data.codon_id['stop']])
+        P = logistic(
+            -1 * (transition.seqparam['kozak'] * data.codon_id['kozak'] +
+                  transition.seqparam['start'][data.codon_id['start']])
+        )
+        Q = logistic(-1 * transition.seqparam['stop'][data.codon_id['stop']])
 
         # for f from 0 <= f < 3:
         for f in range(3):
 
-            self.pos_first_moment[f,self.M-1,:] = np.exp(self.alpha[f,self.M-1,:])
+            self.pos_first_moment[f, self.M - 1, :] = np.exp(self.alpha[f, self.M - 1, :])
             newbeta = np.empty((self.S,), dtype=np.float64)
             beta = np.zeros((self.S,), dtype=np.float64)
 
-            for m in range(self.M-2,-1,-1):
+            for m in range(self.M - 2, -1, -1):
 
                 # for s from 0 <= s < self.S:
                 for s in range(self.S):
-                    beta[s] = beta[s] + data.log_probability[f,m+1,s]
+                    beta[s] = beta[s] + data.log_probability[f, m + 1, s]
 
                 try:
-                    pp = beta[0] + log(1-P[m+1,f])
+                    pp = beta[0] + log(1 - P[m + 1, f])
                 except ValueError:
                     pp = utils.MIN
                 try:
-                    p = beta[1] + log(P[m+1,f])
+                    p = beta[1] + log(P[m + 1, f])
                 except ValueError:
                     p = utils.MIN
                 try:
-                    q = beta[5] + log(Q[m+1,f])
+                    q = beta[5] + log(Q[m + 1, f])
                 except ValueError:
                     q = utils.MIN
                 try:
-                    qq = beta[4] + log(1-Q[m+1,f])
+                    qq = beta[4] + log(1 - Q[m + 1, f])
                 except ValueError:
                     qq = utils.MIN
 
                 # pos cross moment at start
-                a = self.alpha[f,m,0] - self.likelihood[m+1,f]
-                self.pos_cross_moment_start[f,m+1,0] = exp(a+p)
-                self.pos_cross_moment_start[f,m+1,1] = exp(a+pp)
+                a = self.alpha[f, m, 0] - self.likelihood[m + 1, f]
+                self.pos_cross_moment_start[f, m + 1, 0] = exp(a + p)
+                self.pos_cross_moment_start[f, m + 1, 1] = exp(a + pp)
     
                 # states 1,2,3,5,6,7
                 for s in swapidx:
-                    newbeta[s] = beta[s+1]
-                newbeta[self.S-1] = beta[self.S-1]
+                    newbeta[s] = beta[s + 1]
+                newbeta[self.S - 1] = beta[self.S - 1]
 
                 # state 0
-                if p>pp:
-                    newbeta[0] = log(1+np.exp(pp-p)) + p
+                if p > pp:
+                    newbeta[0] = log(1 + np.exp(pp - p)) + p
                 else:
-                    newbeta[0] = log(1+np.exp(p-pp)) + pp
+                    newbeta[0] = log(1 + np.exp(p - pp)) + pp
 
                 # state 4
-                if qq>q:
-                    newbeta[4] = log(1+np.exp(q-qq)) + qq
+                if qq > q:
+                    newbeta[4] = log(1 + np.exp(q - qq)) + qq
                 else:
-                    newbeta[4] = log(1+np.exp(qq-q)) + q
+                    newbeta[4] = log(1 + np.exp(qq - q)) + q
 
                 # for s from 0 <= s < self.S:
                 for s in range(self.S):
-                    beta[s] = newbeta[s] - self.likelihood[m+1,f]
-                    self.pos_first_moment[f,m,s] = exp(self.alpha[f,m,s] + beta[s])
+                    beta[s] = newbeta[s] - self.likelihood[m + 1, f]
+                    self.pos_first_moment[f, m, s] = exp(self.alpha[f, m, s] + beta[s])
 
-            self.pos_cross_moment_start[f,0,0] = 0
-            self.pos_cross_moment_start[f,0,1] = 0
+            self.pos_cross_moment_start[f, 0, 0] = 0
+            self.pos_cross_moment_start[f, 0, 1] = 0
 
-        if np.isnan(self.pos_first_moment).any() \
-        or np.isinf(self.pos_first_moment).any():
+        if np.isnan(self.pos_first_moment).any() or np.isinf(self.pos_first_moment).any():
             print('Warning: Inf/Nan in first moment')
             pdb.set_trace()
 
-        if np.isnan(self.pos_cross_moment_start).any() \
-        or np.isinf(self.pos_cross_moment_start).any():
+        if np.isnan(self.pos_cross_moment_start).any() or np.isinf(self.pos_cross_moment_start).any():
             print('Warning: Inf/Nan in start cross moment')
             pdb.set_trace()
 
@@ -443,6 +459,7 @@ class State(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef decode(self, Data data, Transition transition, Emission emission, Frame frame):
+    @njit
     def decode(self, data, transition, emission, frame):
 
         # cdef long f, s, m
@@ -558,6 +575,7 @@ class State(object):
     # @cython.nonecheck(False)
     # cdef double joint_probability(self, Data data, Transition transition,
     #                               np.ndarray[np.uint8_t, ndim=1] state, long frame):
+    @njit
     def joint_probability(self, data, transition, state, frame):
 
         # cdef long m
@@ -599,6 +617,7 @@ class State(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef double compute_posterior(self, Data data, Transition transition, long start, long stop):
+    @njit
     def compute_posterior(self, data, transition, start, stop):
 
         # cdef long frame
@@ -663,6 +682,9 @@ class Transition(object):
         self.seqparam['stop'] = utils.MAX * np.ones((4,), dtype=np.float64)
         self.seqparam['stop'][0] = utils.MIN
 
+    def __getitem__(self, item):
+        return self.__dict__[item]
+
     def _serialize(self):
         return {
             'seqparam': {
@@ -676,6 +698,7 @@ class Transition(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef update(self, list data, list states, list frames):
+    @njit
     def update(self, data, states, frames):
 
         # cdef bool optimized
@@ -690,9 +713,9 @@ class Transition(object):
         # warm start for the optimization
         optimized = False
         if self.restrict:
-            xo = np.hstack((self.seqparam['kozak'],self.seqparam['start'][1:2]))
+            xo = np.hstack((self.seqparam['kozak'], self.seqparam['start'][1:2]))
         else:
-            xo = np.hstack((self.seqparam['kozak'],self.seqparam['start'][1:]))
+            xo = np.hstack((self.seqparam['kozak'], self.seqparam['start'][1:]))
 
         V = xo.size
         x_init = xo.reshape(V,1)
@@ -718,8 +741,10 @@ def rebuild_Transition(seqparam, restrict):
     t.restrict = restrict
     return t
 
+@njit
 def optimize_transition_initiation(x_init, data, states, frames, restrict):
 
+    @njit
     def func(x=None, z=None):
 
         if x is None:
@@ -738,10 +763,11 @@ def optimize_transition_initiation(x_init, data, states, frames, restrict):
                 f = np.array([np.finfo(np.float32).max]).astype(np.float64)
             else:
                 f = np.array([fd]).astype(np.float64)
+
             if np.isnan(Df).any() or np.isinf(Df).any():
-                Df = -1 * np.finfo(np.float32).max * np.ones((1,xx.size), dtype=np.float64)
+                Df = -1 * np.finfo(np.float32).max * np.ones((1, xx.size), dtype=np.float64)
             else:
-                Df = Df.reshape(1,xx.size)
+                Df = Df.reshape(1, xx.size)
 
             return cvx.matrix(f), cvx.matrix(Df)
 
@@ -757,14 +783,15 @@ def optimize_transition_initiation(x_init, data, states, frames, restrict):
                 f = np.array([np.finfo(np.float32).max]).astype(np.float64)
             else:
                 f = np.array([fd]).astype(np.float64)
+
             if np.isnan(Df).any() or np.isinf(Df).any():
-                Df = -1 * np.finfo(np.float32).max * np.ones((1,xx.size), dtype=np.float64)
+                Df = -1 * np.finfo(np.float32).max * np.ones((1, xx.size), dtype=np.float64)
             else:
-                Df = Df.reshape(1,xx.size)
+                Df = Df.reshape(1, xx.size)
 
             # check if hessian is positive semi-definite
             eigs = np.linalg.eig(hess)
-            if np.any(eigs[0]<0):
+            if np.any(eigs[0] < 0):
                 raise ValueError
             hess = z[0] * hess
             return cvx.matrix(f), cvx.matrix(Df), cvx.matrix(hess)
@@ -774,11 +801,7 @@ def optimize_transition_initiation(x_init, data, states, frames, restrict):
 
     # check if optimal value has been reached;
     # if not, re-optimize with a cold start
-    allowed = ['optimal','unknown']
-    if solution['status'] in allowed:
-        optimized = True
-    else:
-        optimized = False
+    optimized = solution['status'] in {'optimal', 'unknown'}
     x_final = np.array(solution['x']).ravel()
 
     return x_final, optimized
@@ -788,6 +811,7 @@ def optimize_transition_initiation(x_init, data, states, frames, restrict):
 # @cython.nonecheck(False)
 # cdef tuple transition_func_grad(np.ndarray[np.float64_t, ndim=1] x,
 #                                 list data, list states, list frames, bool restrict):
+@njit
 def transition_func_grad(x, data, states, frames, restrict):
 
     # cdef Data datum
@@ -805,36 +829,41 @@ def transition_func_grad(x, data, states, frames, restrict):
     else:
         xex[2:] = x[2:]
 
-    V = x.size
-    func = 0
+    V, func = x.size, 0
     df = np.zeros((V,), dtype=float)
-    for datum,state,frame in zip(data,states,frames):
+    for datum, state, frame in zip(data, states, frames):
 
         # for j from 0 <= j < 3:
         for j in range(3):
 
-            arg = x[0]*datum.codon_id['kozak'][1:,j] + xex[datum.codon_id['start'][1:,j]]
+            arg = x[0] * datum.codon_id['kozak'][1:, j] + xex[datum.codon_id['start'][1:, j]]
 
             # evaluate function
-            func += frame.posterior[j] * np.sum(state.pos_cross_moment_start[j,1:,0] * arg \
-                                                - state.pos_cross_moment_start[j].sum(1)[1:] * utils.nplog(1 + np.exp(arg)))
+            func += frame.posterior[j] * np.sum(
+                state.pos_cross_moment_start[j, 1:, 0] *
+                arg - state.pos_cross_moment_start[j].sum(1)[1:] *
+                utils.nplog(1 + np.exp(arg))
+            )
 
             # evaluate gradient
-            vec = state.pos_cross_moment_start[j,1:,0] \
-                - state.pos_cross_moment_start[j].sum(1)[1:] * logistic(-arg)
-            df[0] += frame.posterior[j] * np.sum(vec*datum.codon_id['kozak'][1:,j])
+            vec = (
+                state.pos_cross_moment_start[j, 1:, 0] -
+                state.pos_cross_moment_start[j].sum(1)[1:] *
+                logistic(-arg)
+            )
+            df[0] += frame.posterior[j] * np.sum(vec * datum.codon_id['kozak'][1:, j])
             # for v from 1 <= v < V:
             for v in range(1, V):
-                tmp = datum.codon_id['start'][1:,j]==v
-                df[v] += frame.posterior[j] * np.sum(vec[tmp])
+                df[v] += frame.posterior[j] * np.sum(vec[datum.codon_id['start'][1:, j] == v])
 
-    return -1.*func, -1.*df
+    return -func, -df
 
 # @cython.boundscheck(False)
 # @cython.wraparound(False)
 # @cython.nonecheck(False)
 # cdef tuple transition_func_grad_hess(np.ndarray[np.float64_t, ndim=1] x, list data, list states,
 #                                      list frames, bool restrict):
+@njit
 def transition_func_grad_hess(x, data, states, frames, restrict):
 
     # cdef Data datum
@@ -852,48 +881,52 @@ def transition_func_grad_hess(x, data, states, frames, restrict):
     else:
         xex[2:] = x[2:]
 
-    V = x.size
-    func = 0
+    V, func = x.size, 0
     df = np.zeros((V,), dtype=float)
-    Hf = np.zeros((V,V), dtype=float)
+    Hf = np.zeros((V, V), dtype=float)
 
-    for datum,state,frame in zip(data,states,frames):
+    for datum, state, frame in zip(data, states, frames):
 
         # for j from 0 <= j < 3:
         for j in range(3):
 
-            arg = x[0]*datum.codon_id['kozak'][1:,j] + xex[datum.codon_id['start'][1:,j]]
+            arg = x[0] * datum.codon_id['kozak'][1:, j] + xex[datum.codon_id['start'][1:, j]]
 
             # evaluate function
-            func += frame.posterior[j] * np.sum(state.pos_cross_moment_start[j,1:,0] * arg \
-                                                - state.pos_cross_moment_start[j].sum(1)[1:] * utils.nplog(1 + np.exp(arg)))
+            func += frame.posterior[j] * np.sum(
+                state.pos_cross_moment_start[j, 1:, 0] *
+                arg - state.pos_cross_moment_start[j].sum(1)[1:] *
+                utils.nplog(1 + np.exp(arg))
+            )
 
             # evaluate gradient and hessian
-            vec = state.pos_cross_moment_start[j,1:,0] \
-                - state.pos_cross_moment_start[j].sum(1)[1:] * logistic(-arg)
+            vec = (
+                state.pos_cross_moment_start[j, 1:, 0] -
+                state.pos_cross_moment_start[j].sum(1)[1:] * logistic(-arg)
+            )
             vec2 = state.pos_cross_moment_start[j].sum(1)[1:] * logistic(arg) * logistic(-arg)
-            df[0] += frame.posterior[j] * np.sum(vec*datum.codon_id['kozak'][1:,j])
-            Hf[0,0] += frame.posterior[j] * np.sum(vec2*datum.codon_id['kozak'][1:,j]**2)
+            df[0] += frame.posterior[j] * np.sum(vec * datum.codon_id['kozak'][1:, j])
+            Hf[0,0] += frame.posterior[j] * np.sum(vec2 * datum.codon_id['kozak'][1:, j] ** 2)
             # for v from 1 <= v < V:
             for v in range(1, V):
-                tmp = datum.codon_id['start'][1:,j]==v
+                tmp = datum.codon_id['start'][1:, j] == v
                 df[v] += frame.posterior[j] * np.sum(vec[tmp])
                 Hf[v,v] += frame.posterior[j] * np.sum(vec2[tmp])
-                Hf[0,v] += frame.posterior[j] * np.sum(vec2[tmp] * datum.codon_id['kozak'][1:,j][tmp])
+                Hf[0,v] += frame.posterior[j] * np.sum(vec2[tmp] * datum.codon_id['kozak'][1:, j][tmp])
 
-    Hf[:,0] = Hf[0,:]
-    return -1.*func, -1.*df, Hf
+    Hf[:, 0] = Hf[0, :]
+    return -func, -df, Hf
 
 class Emission(object):
 
-    def __init__(self, scale_beta=10000.0):
+    def __init__(self, scale_beta=10000.0, read_lengths=None):
 
         # cdef long r
         # cdef np.ndarray[np.float64_t, ndim=1] alpha_pattern
         # cdef np.ndarray[np.float64_t, ndim=2] periodicity
 
         self.S = 9
-        self.R = len(utils.READ_LENGTHS)
+        self.R = len(read_lengths)
         self.periodicity = np.empty((self.R,self.S,3), dtype=np.float64)
         self.logperiodicity = np.empty((self.R,self.S,3), dtype=np.float64)
         self.rescale = np.empty((self.R,self.S,8), dtype=np.float64)
@@ -913,6 +946,9 @@ class Emission(object):
             self.rate_beta[r] = scale_beta*np.random.rand(self.S)
 
         self.compute_rescaling()
+
+    def __getitem__(self, item):
+        return self.__dict__[item]
 
     def _serialize(self):
         return {
@@ -938,6 +974,7 @@ class Emission(object):
     # @cython.boundscheck(False)
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
+    @njit
     def update_periodicity(self, data, states, frames):
 
         # cdef bool optimized
@@ -950,36 +987,41 @@ class Emission(object):
         # cdef Frame frame
 
         T = len(data)
-        Et = np.array([d.scale for d in data]).reshape(T,1)
-        index = np.array([[4,5,6,7],[2,3,6,7],[1,3,5,7]]).T
+        Et = np.array([d.scale for d in data]).reshape(T, 1)
+        index = np.array([[4, 5, 6, 7],[2, 3, 6, 7],[1, 3, 5, 7]]).T
 
         # for r from 0 <= r < self.R:
         for r in range(self.R):
 
             # for s from 1 <= s < self.S-1:
-            for s in range(1, self.S-1):
+            for s in range(1, self.S - 1):
 
                 # compute constants
                 At = np.zeros((3,), dtype=np.float64)
                 for j in range(3):
-                    At[j] = np.sum([frame.posterior[f] * np.sum([state.pos_first_moment[f,m,s]*datum.obs[3*m+f+j,r] 
-                            for m in np.where(np.any(datum.missingness_type[r,f,:]==index[:,j:j+1],0))[0]])
-                            for datum,state,frame in zip(data,states,frames) for f in range(3)])
+                    At[j] = np.sum([
+                        frame.posterior[f] * np.sum([
+                            state.pos_first_moment[f, m, s] * datum.obs[3 * m + f + j,r]
+                            for m in np.where(np.any(datum.missingness_type[r, f, :] == index[:, j:j + 1], 0))[0]
+                        ]) for datum, state, frame in zip(data, states, frames)
+                        for f in range(3)
+                    ])
   
-                Bt = np.zeros((T,3), dtype=np.float64)
-                Ct = np.zeros((T,3), dtype=np.float64)
-                for t,(datum,state,frame) in enumerate(zip(data,states,frames)):
+                Bt = np.zeros((T, 3), dtype=np.float64)
+                Ct = np.zeros((T, 3), dtype=np.float64)
+                for t, (datum, state, frame) in enumerate(zip(data, states, frames)):
+                    argA = np.array([
+                        frame.posterior[f] * state.pos_first_moment[f,:,s] *
+                        (datum.total[f, :, r] + self.rate_alpha[r, s] * self.rate_beta[r,s])
+                        for f in range(3)
+                    ])
  
-                    argA = np.array([frame.posterior[f] * state.pos_first_moment[f,:,s] *
-                                     (datum.total[f,:,r]+self.rate_alpha[r,s]*self.rate_beta[r,s])
-                                     for f in range(3)])
- 
-                    Bt[t,0] += np.sum(argA[datum.missingness_type[r]==3])
-                    Bt[t,1] += np.sum(argA[datum.missingness_type[r]==5])
-                    Bt[t,2] += np.sum(argA[datum.missingness_type[r]==6])
-                    Ct[t,0] += np.sum(argA[datum.missingness_type[r]==4])
-                    Ct[t,1] += np.sum(argA[datum.missingness_type[r]==2])
-                    Ct[t,2] += np.sum(argA[datum.missingness_type[r]==1])
+                    Bt[t, 0] += np.sum(argA[datum.missingness_type[r] == 3])
+                    Bt[t, 1] += np.sum(argA[datum.missingness_type[r] == 5])
+                    Bt[t, 2] += np.sum(argA[datum.missingness_type[r] == 6])
+                    Ct[t, 0] += np.sum(argA[datum.missingness_type[r] == 4])
+                    Ct[t, 1] += np.sum(argA[datum.missingness_type[r] == 2])
+                    Ct[t, 2] += np.sum(argA[datum.missingness_type[r] == 1])
 
                 constants = [At, Bt, Ct, Et, self.rate_beta[r,s]]
 
@@ -987,9 +1029,9 @@ class Emission(object):
                 try:
                     result, optimized = optimize_periodicity(self.periodicity[r,s,:], constants)
                     if optimized:
-                        result[result<=0] = utils.EPS
+                        result[result <= 0] = utils.EPS
                         result = result/result.sum()
-                        self.periodicity[r,s,:] = result
+                        self.periodicity[r, s, :] = result
                 except:
                     # if any error is thrown, skip updating at this iteration
                     pass
@@ -1010,20 +1052,18 @@ class Emission(object):
         # cdef np.ndarray mask
 
         for r in range(self.R):
-
             for s in range(self.S):
-
                 """
                 TODO Need to use six here
                 """
                 for j,mask in utils.binarize.items():
-                
-                    self.rescale[r,s,j] = np.sum(self.periodicity[r,s,mask])
+                    self.rescale[r, s, j] = np.sum(self.periodicity[r, s, mask])
 
     # @cython.boundscheck(False)
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef update_beta(self, list data, list states, list frames, double reltol):
+    @njit
     def update_beta(self, data, states, frames, reltol):
 
         # cdef Data datum
@@ -1068,6 +1108,7 @@ class Emission(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef np.ndarray _square_beta_map(self, np.ndarray beta, list data, list states, list frames, np.ndarray denom):
+    @njit
     def _square_beta_map(self, beta, data, states, frames, denom):
 
         # cdef int step
@@ -1108,6 +1149,7 @@ class Emission(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef np.ndarray _beta_map(self, np.ndarray beta, list data, list states, list frames, np.ndarray denom):
+    @njit
     def _beta_map(self, beta, data, states, frames, denom):
 
         # cdef long f, r, s, l
@@ -1161,6 +1203,7 @@ class Emission(object):
     # @cython.boundscheck(False)
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
+    @njit
     def update_alpha(self, data, states, frames):
 
         # cdef bool optimized
@@ -1193,8 +1236,9 @@ def rebuild_Emission(periodicity, alpha, beta):
     e.compute_rescaling()
     return e
 
+@njit
 def optimize_periodicity(x_init, constants):
-
+    @njit
     def F(x=None, z=None):
 
         if x is None:
@@ -1258,8 +1302,9 @@ def optimize_periodicity(x_init, constants):
 
     return x_final, optimized
 
+@njit
 def optimize_alpha(x_init, data, states, frames, rescale, beta):
-
+    @njit
     def F(x=None, z=None):
 
         if x is None:
@@ -1333,6 +1378,7 @@ def optimize_alpha(x_init, data, states, frames, rescale, beta):
 # @cython.nonecheck(False)
 # cdef tuple alpha_func_grad(np.ndarray[np.float64_t, ndim=2] x, list data, list states, list frames,
 #                            np.ndarray[np.float64_t, ndim=3] rescale, np.ndarray[np.float64_t, ndim=2] beta):
+@njit
 def alpha_func_grad(x, data, states, frames, rescale, beta):
 
     # cdef Data datum
@@ -1405,6 +1451,7 @@ def alpha_func_grad(x, data, states, frames, rescale, beta):
 # @cython.nonecheck(False)
 # cdef tuple alpha_func_grad_hess(np.ndarray[np.float64_t, ndim=2] x, list data, list states, list frames,
 #                                 np.ndarray[np.float64_t, ndim=3] rescale, np.ndarray[np.float64_t, ndim=2] beta):
+@njit
 def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
 
     # cdef Data datum
@@ -1484,7 +1531,8 @@ def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
 
     return func, gradient, hessian
 
-def learn_parameters(observations, codon_id, scales, mappability, scale_beta, restarts, mintol):
+@njit
+def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mintol, read_lengths):
 
     # cdef long restart, i, D
     # cdef double scale, Lmax, L, dL, newL, reltol, starttime, totaltime
@@ -1498,36 +1546,43 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, re
     # cdef State state
     # cdef Frame frame
 
-    data = [Data(observation, id, scale, mappable)
-               for observation, id, scale, mappable in
-               zip(observations, codon_id, scales, mappability)]
+    data = [
+        Data(observation, id, scale, mappable)
+        for observation, id, scale, mappable
+        in zip(observations, codon_id, scales, mappability)
+    ]
 
     # Initialize latent variables
     states = [State(datum.M) for datum in data]
-    frames = [Frame() for datum in data]
+    frames = [Frame() for _ in range(len(data))]
 
     print('Stage 1: allow only AUG start codons; only update periodicity parameters ...')
     transition = Transition()
-    emission = Emission(scale_beta)
+    emission = Emission(scale_beta, read_lengths)
 
     # compute initial log likelihood
-    for datum,state,frame in zip(data,states,frames):
+    for datum, state, frame in zip(data, states, frames):
+
         datum.compute_log_probability(emission)
+
         state._forward_update(datum, transition)
+
         frame.update(datum, state)
-    L = np.sum([np.sum(frame.posterior*state.likelihood) \
-            + np.sum(frame.posterior*datum.extra_log_probability) \
-            for datum,state,frame in zip(data,states,frames)]) / \
-            np.sum([datum.L for datum in data])
+
+    # L is log likelihood
+    L = np.sum([
+        np.sum(frame.posterior*state.likelihood) + np.sum(frame.posterior*datum.extra_log_probability)
+        for datum, state, frame in zip(data, states, frames)
+    ]) / np.sum([datum.L for datum in data])
     dL = np.inf
 
     # iterate till convergence
-    reltol = dL/np.abs(L)
-    while np.abs(reltol)>mintol:
+    reltol = dL / np.abs(L)
+    while np.abs(reltol) > mintol:
 
         starttime = time.time()
 
-        for state,datum in zip(states, data):
+        for state, datum in zip(states, data):
             state._reverse_update(datum, transition)
 
         # update periodicity parameters
@@ -1537,18 +1592,23 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, re
         transition.update(data, states, frames)
 
         # compute log likelihood
-        for datum,state,frame in zip(data,states,frames):
-            datum.compute_log_probability(emission)
-            state._forward_update(datum, transition)
-            frame.update(datum, state)
-        newL = np.sum([np.sum(frame.posterior*state.likelihood) \
-            + np.sum(frame.posterior*datum.extra_log_probability) \
-            for datum,state,frame in zip(data,states,frames)]) / \
-            np.sum([datum.L for datum in data])
+        for datum, state, frame in zip(data,states,frames):
 
-        dL = newL-L
-        L = newL
-        reltol = dL/np.abs(L)
+            datum.compute_log_probability(emission)
+
+            state._forward_update(datum, transition)
+
+            frame.update(datum, state)
+
+        newL = np.sum([
+            np.sum(frame.posterior*state.likelihood) + np.sum(frame.posterior*datum.extra_log_probability)
+            for datum,state,frame in zip(data,states,frames)
+        ]) / np.sum([datum.L for datum in data])
+
+        # Set change in likelihood and the likelihood for the next round
+        dL, L = newL - L, newL
+        reltol = dL / np.abs(L)
+
         print(L)
         print(reltol)
         print(time.time() - starttime)
@@ -1562,7 +1622,8 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, re
         starttime = time.time()
 
         # update latent states
-        for state,datum in zip(states, data):
+        for state, datum in zip(states, data):
+
             state._reverse_update(datum, transition)
 
         # update periodicity parameters
@@ -1570,39 +1631,51 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, re
 
         # update occupancy parameters
         emission.update_alpha(data, states, frames)
+
         emission.update_beta(data, states, frames, 1e-3)
 
         # update transition parameters
         transition.update(data, states, frames)
 
         # compute log likelihood
-        for datum,state,frame in zip(data,states,frames):
-            datum.compute_log_probability(emission)
-            state._forward_update(datum, transition)
-            frame.update(datum, state)
-        newL = np.sum([np.sum(frame.posterior*state.likelihood) \
-            + np.sum(frame.posterior*datum.extra_log_probability) \
-            for datum,state,frame in zip(data,states,frames)]) / \
-            np.sum([datum.L for datum in data])
+        for datum, state, frame in zip(data, states, frames):
 
-        dL = newL-L
-        L = newL
-        reltol = dL/np.abs(L)
+            datum.compute_log_probability(emission)
+
+            state._forward_update(datum, transition)
+
+            frame.update(datum, state)
+
+        newL = np.sum([
+            np.sum(frame.posterior*state.likelihood) + np.sum(frame.posterior*datum.extra_log_probability)
+            for datum,state,frame in zip(data,states,frames)
+        ]) / np.sum([datum.L for datum in data])
+
+        # Set change in likelihood and the likelihood for the next round
+        dL, L = newL - L, newL
+        reltol = dL / np.abs(L)
+
         # print L, reltol, time.time()-starttime
         print(L)
         print(reltol)
         print(time.time() - starttime)
 
     print('Stage 3: allow noncanonical start codons ...')
+
     transition.restrict = False
-    transition.seqparam['start'][2:] = -3+np.random.rand(transition.seqparam['start'][2:].size)
-    for datum,state,frame in zip(data,states,frames):
+
+    transition.seqparam['start'][2:] = -3 + np.random.rand(transition.seqparam['start'][2:].size)
+
+    # Initial log likelihood again?
+    for datum, state, frame in zip(data, states, frames):
+
         state._forward_update(datum, transition)
+
         frame.update(datum, state)
 
     dL = np.inf
-    reltol = dL/np.abs(L)
-    while np.abs(reltol)>mintol:
+    reltol = dL / np.abs(L)
+    while np.abs(reltol) > mintol:
 
         totaltime = time.time()
 
@@ -1615,17 +1688,21 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, re
         transition.update(data, states, frames)
 
         # compute log likelihood
-        for datum,state,frame in zip(data, states, frames):
-            state._forward_update(datum, transition)
-            frame.update(datum, state)
-        newL = np.sum([np.sum(frame.posterior*state.likelihood) \
-            + np.sum(frame.posterior*datum.extra_log_probability) \
-            for datum,state,frame in zip(data,states,frames)]) / \
-            np.sum([datum.L for datum in data])
+        for datum, state, frame in zip(data, states, frames):
 
-        dL = newL-L
-        L = newL
-        reltol = dL/np.abs(L)
+            state._forward_update(datum, transition)
+
+            frame.update(datum, state)
+
+        newL = np.sum([
+            np.sum(frame.posterior*state.likelihood) + np.sum(frame.posterior*datum.extra_log_probability)
+            for datum,state,frame in zip(data,states,frames)
+        ]) / np.sum([datum.L for datum in data])
+
+        # Set change in likelihood and the likelihood for the next round
+        dL, L = newL - L, newL
+        reltol = dL / np.abs(L)
+
         # print L, reltol, time.time()-starttime
         print(L)
         print(reltol)
