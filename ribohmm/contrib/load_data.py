@@ -86,11 +86,11 @@ class RiboSeq():
 
         # self._fwd_handles = [pysam.TabixFile(file_prefix+'_fwd.%d.gz'%r)
         #                      for r in utils.READ_LENGTHS]
-        self._fwd_handles = [pysam.TabixFile(file_prefix + '_{}.len{}.tbx.gz'.format('fwd', r))
+        self._fwd_handles = [pysam.TabixFile(file_prefix + '.{}.len{}.tbx.gz'.format('fwd', r))
                              for r in read_lengths]
         # self._rev_handles = [pysam.TabixFile(file_prefix+'_rev.%d.gz'%r)
         #                      for r in utils.READ_LENGTHS]
-        self._rev_handles = [pysam.TabixFile(file_prefix + '_{}.len{}.tbx.gz'.format('rev', r))
+        self._rev_handles = [pysam.TabixFile(file_prefix + '.{}.len{}.tbx.gz'.format('rev', r))
                              for r in read_lengths]
         self._read_lengths = read_lengths
 

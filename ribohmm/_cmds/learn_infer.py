@@ -107,7 +107,7 @@ def main(args=None):
     # Generate major objects once
     print('\n######\nCreating biological models\n######')
     print('Inflating genome model')
-    genome_track = load_data.Genome(args['reference_fasta'], args['mappability_tabix_prefix'])
+    genome_track = load_data.Genome(args['reference_fasta'], args['mappability_tabix_prefix'], args['read_lengths'])
     print('Inflating transcript models ')
     gtf_model = load_data.load_gtf(args['transcriptome_gtf'])
     print('Inflating riboseq model')

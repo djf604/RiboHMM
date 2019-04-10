@@ -120,4 +120,4 @@ def convert_riboseq(bam_file, output_directory, bgzip_path, tabix_path, read_len
         print('Compressed file with ribosome footprint counts on '
               'reverse strand is {}.gz'.format(count_file_path.format('rev', r)))
 
-    return os.path.join(output_directory, os.path.splitext(bam_file)[BEFORE_EXT])
+    return os.path.join(output_directory, 'tabix', os.path.splitext(os.path.basename(bam_file))[BEFORE_EXT])

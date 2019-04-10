@@ -128,6 +128,7 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
         ))
 
     # run the learning algorithm
+    print('About to run learn_parameters')
     transition, emission, L = ribohmm.learn_parameters(
         footprint_counts,
         codon_flags,

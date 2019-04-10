@@ -15,7 +15,7 @@ setup(
     entry_points={
         'console_scripts': ['ribohmm = ribohmm:execute_from_command_line']
     },
-    install_requires=['pysam', 'cvxopt', 'numpy', 'scipy'],
+    install_requires=['pysam', 'cvxopt', 'numpy', 'scipy', 'numba'],
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Environment :: Console',

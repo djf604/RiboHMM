@@ -1531,7 +1531,7 @@ def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
 
     return func, gradient, hessian
 
-@njit
+# @njit
 def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mintol, read_lengths):
 
     # cdef long restart, i, D
@@ -1545,15 +1545,18 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
     # cdef Transition transition, best_transition
     # cdef State state
     # cdef Frame frame
+    print('In learn_parameters')
 
     data = [
         Data(observation, id, scale, mappable)
         for observation, id, scale, mappable
         in zip(observations, codon_id, scales, mappability)
     ]
+    print('inflated data')
 
     # Initialize latent variables
     states = [State(datum.M) for datum in data]
+    print('inflated states')
     frames = [Frame() for _ in range(len(data))]
 
     print('Stage 1: allow only AUG start codons; only update periodicity parameters ...')
