@@ -7,6 +7,7 @@ import numpy as np
 
 from ribohmm import core, utils
 from ribohmm.core import seq as seq
+from ribohmm.core.ribohmm import infer_coding_sequence
 
 # ignore warnings with these expressions
 warnings.filterwarnings('ignore', '.*overflow encountered.*',)
@@ -171,7 +172,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             # run the learning algorithm
             # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
             #                        rna_counts, rna_mappability, transition, emission)
-            states, frames = core.infer_coding_sequence(footprint_counts, codon_flags, \
+            states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
                                                         rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
 
             # write results
@@ -215,7 +216,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             # run the learning algorithm
             # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
             #                        rna_counts, rna_mappability, transition, emission)
-            states, frames = core.infer_coding_sequence(footprint_counts, codon_flags, \
+            states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
                                                         rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
 
             # write results

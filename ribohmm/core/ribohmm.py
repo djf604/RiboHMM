@@ -11,17 +11,21 @@ from cvxopt import solvers
 import time, pdb
 
 from ribohmm import utils
-from numba import njit
+from numba import njit, jit
 
 solvers.options['maxiters'] = 300
 solvers.options['show_progress'] = False
-logistic = lambda x: 1./(1+np.exp(x))
+# logistic = lambda x: 1./(1+np.exp(x))
+
+# @njit
+def logistic(x):
+    return 1./(1+np.exp(x))
 
 # @cython.boundscheck(False)
 # @cython.wraparound(False)
 # @cython.nonecheck(False)
 # cdef double normalize(np.ndarray[np.float64_t, ndim=1] x):
-@njit
+# @njit
 def normalize(x):
     """Compute the log-sum-exp of a real-valued vector,
        avoiding numerical overflow issues.
@@ -111,7 +115,7 @@ class Data:
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef compute_log_probability(self, Emission emission):
-    @njit
+#     # @njit
     def compute_log_probability(self, emission):
         """Computes the log probability of the data given model parameters.
            Log probability of data is the sum of log probability at positions
@@ -272,7 +276,7 @@ class State(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef _forward_update(self, Data data, Transition transition):
-    @njit
+    # @jit(nopython=True)
     def _forward_update(self, data, transition):
 
         # cdef long f, i, s, m
@@ -368,7 +372,7 @@ class State(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef _reverse_update(self, Data data, Transition transition):
-    @njit
+    # @njit
     def _reverse_update(self, data, transition):
 
         # cdef long f, id, s, m
@@ -459,7 +463,7 @@ class State(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef decode(self, Data data, Transition transition, Emission emission, Frame frame):
-    @njit
+    # @njit
     def decode(self, data, transition, emission, frame):
 
         # cdef long f, s, m
@@ -575,7 +579,7 @@ class State(object):
     # @cython.nonecheck(False)
     # cdef double joint_probability(self, Data data, Transition transition,
     #                               np.ndarray[np.uint8_t, ndim=1] state, long frame):
-    @njit
+    # @njit
     def joint_probability(self, data, transition, state, frame):
 
         # cdef long m
@@ -617,7 +621,7 @@ class State(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef double compute_posterior(self, Data data, Transition transition, long start, long stop):
-    @njit
+    # @njit
     def compute_posterior(self, data, transition, start, stop):
 
         # cdef long frame
@@ -698,7 +702,7 @@ class Transition(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef update(self, list data, list states, list frames):
-    @njit
+    # @njit
     def update(self, data, states, frames):
 
         # cdef bool optimized
@@ -741,10 +745,10 @@ def rebuild_Transition(seqparam, restrict):
     t.restrict = restrict
     return t
 
-@njit
+# @njit
 def optimize_transition_initiation(x_init, data, states, frames, restrict):
 
-    @njit
+    # @njit
     def func(x=None, z=None):
 
         if x is None:
@@ -811,7 +815,7 @@ def optimize_transition_initiation(x_init, data, states, frames, restrict):
 # @cython.nonecheck(False)
 # cdef tuple transition_func_grad(np.ndarray[np.float64_t, ndim=1] x,
 #                                 list data, list states, list frames, bool restrict):
-@njit
+# @njit
 def transition_func_grad(x, data, states, frames, restrict):
 
     # cdef Data datum
@@ -863,7 +867,7 @@ def transition_func_grad(x, data, states, frames, restrict):
 # @cython.nonecheck(False)
 # cdef tuple transition_func_grad_hess(np.ndarray[np.float64_t, ndim=1] x, list data, list states,
 #                                      list frames, bool restrict):
-@njit
+# @njit
 def transition_func_grad_hess(x, data, states, frames, restrict):
 
     # cdef Data datum
@@ -974,7 +978,7 @@ class Emission(object):
     # @cython.boundscheck(False)
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
-    @njit
+    # @njit
     def update_periodicity(self, data, states, frames):
 
         # cdef bool optimized
@@ -1063,7 +1067,7 @@ class Emission(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef update_beta(self, list data, list states, list frames, double reltol):
-    @njit
+    # @njit
     def update_beta(self, data, states, frames, reltol):
 
         # cdef Data datum
@@ -1108,7 +1112,7 @@ class Emission(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef np.ndarray _square_beta_map(self, np.ndarray beta, list data, list states, list frames, np.ndarray denom):
-    @njit
+    # @njit
     def _square_beta_map(self, beta, data, states, frames, denom):
 
         # cdef int step
@@ -1149,7 +1153,7 @@ class Emission(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     # cdef np.ndarray _beta_map(self, np.ndarray beta, list data, list states, list frames, np.ndarray denom):
-    @njit
+    # @njit
     def _beta_map(self, beta, data, states, frames, denom):
 
         # cdef long f, r, s, l
@@ -1203,7 +1207,7 @@ class Emission(object):
     # @cython.boundscheck(False)
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
-    @njit
+    # @njit
     def update_alpha(self, data, states, frames):
 
         # cdef bool optimized
@@ -1236,9 +1240,9 @@ def rebuild_Emission(periodicity, alpha, beta):
     e.compute_rescaling()
     return e
 
-@njit
+# @njit
 def optimize_periodicity(x_init, constants):
-    @njit
+    # @njit
     def F(x=None, z=None):
 
         if x is None:
@@ -1302,9 +1306,9 @@ def optimize_periodicity(x_init, constants):
 
     return x_final, optimized
 
-@njit
+# @njit
 def optimize_alpha(x_init, data, states, frames, rescale, beta):
-    @njit
+    # @njit
     def F(x=None, z=None):
 
         if x is None:
@@ -1378,7 +1382,7 @@ def optimize_alpha(x_init, data, states, frames, rescale, beta):
 # @cython.nonecheck(False)
 # cdef tuple alpha_func_grad(np.ndarray[np.float64_t, ndim=2] x, list data, list states, list frames,
 #                            np.ndarray[np.float64_t, ndim=3] rescale, np.ndarray[np.float64_t, ndim=2] beta):
-@njit
+# @njit
 def alpha_func_grad(x, data, states, frames, rescale, beta):
 
     # cdef Data datum
@@ -1451,7 +1455,7 @@ def alpha_func_grad(x, data, states, frames, rescale, beta):
 # @cython.nonecheck(False)
 # cdef tuple alpha_func_grad_hess(np.ndarray[np.float64_t, ndim=2] x, list data, list states, list frames,
 #                                 np.ndarray[np.float64_t, ndim=3] rescale, np.ndarray[np.float64_t, ndim=2] beta):
-@njit
+# @njit
 def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
 
     # cdef Data datum
@@ -1531,7 +1535,7 @@ def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
 
     return func, gradient, hessian
 
-# @njit
+# # @njit
 def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mintol, read_lengths):
 
     # cdef long restart, i, D
@@ -1612,9 +1616,9 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
         dL, L = newL - L, newL
         reltol = dL / np.abs(L)
 
-        print(L)
-        print(reltol)
-        print(time.time() - starttime)
+        print('\nLoss: {}'.format(L))
+        print('Relative tolerance (convergence): {} ({})'.format(reltol, mintol))
+        print('Time in sec, this iteration: {}'.format(time.time() - starttime))
         # print L, reltol, time.time()-starttime
 
     print('Stage 2: allow only AUG start codons; update all parameters ...')
@@ -1659,9 +1663,9 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
         reltol = dL / np.abs(L)
 
         # print L, reltol, time.time()-starttime
-        print(L)
-        print(reltol)
-        print(time.time() - starttime)
+        print('\nLoss: {}'.format(L))
+        print('Relative tolerance (convergence): {} ({})'.format(reltol, mintol))
+        print('Time in sec, this iteration: {}'.format(time.time() - starttime))
 
     print('Stage 3: allow noncanonical start codons ...')
 
@@ -1707,9 +1711,9 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
         reltol = dL / np.abs(L)
 
         # print L, reltol, time.time()-starttime
-        print(L)
-        print(reltol)
-        print(time.time() - starttime)
+        print('\nLoss: {}'.format(L))
+        print('Relative tolerance (convergence): {} ({})'.format(reltol, mintol))
+        print('Time in sec, this iteration: {}'.format(time.time() - starttime))
 
     return transition, emission, L
 

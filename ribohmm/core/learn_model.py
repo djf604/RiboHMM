@@ -28,10 +28,13 @@ def select_transcripts(transcript_models_dict, ribo_track, batch_size):
     For each transcript, divide the total number of counts in the exons by the length of all exons
     """
     print('Calculating transcript translation rate')
+    import time
+    start = time.time()
     transcript_translation_rate = [
         c / float(t.mask.sum())
         for c, t in zip(ribo_track.get_total_counts(transcript_models), transcript_models)
     ]
+    print('{}'.format(time.time() - start))
 
     # select top transcripts
     transcripts, transcript_bounds = list(), defaultdict(list)

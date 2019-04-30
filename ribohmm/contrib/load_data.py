@@ -13,6 +13,7 @@ class Genome():
         self._seq_handle = pysam.FastaFile(fasta_filename)
         self._map_handles = [pysam.TabixFile(map_filename+'_%d.gz'%r)
                              for r in read_lengths]
+        self._read_lengths = read_lengths
 
     def get_sequence(self, transcripts):
         """
@@ -49,13 +50,13 @@ class Genome():
 
             # get mappable positions
             mappables = [np.zeros(transcript.mask.shape, dtype='bool')
-                         for r in utils.READ_LENGTHS]
+                         for r in self._read_lengths]
             tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop)
                          for handle in self._map_handles]
             if transcript.strand=='+':
                 offsets = [1,1,1,1]
             else:
-                offsets = utils.READ_LENGTHS
+                offsets = self._read_lengths
 
             for tbx_iter,mappable,offset in zip(tbx_iters,mappables,offsets):
 
@@ -368,9 +369,40 @@ def load_gtf(filename):
     :return:
     """
 
+    # Check cache at ~/.ribohmm
+    import os
+    import dill
+    import hashlib
+    cache_dir = os.path.join(os.path.expanduser('~'), '.ribohmm')
+    transcr_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
+    try:
+        with open(os.path.join(cache_dir, 'transcr.{}.dill'.format(transcr_model_md5)), 'rb') as cache_in:
+            return dill.load(cache_in)
+    except:
+        pass  # Silently fail, the cache does not exist
+
+
+    # cached_transcr_models = [c.split('.')[1] for c in os.listdir(cache_dir) if c.startswith('transcr_')]
+    # proposed_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
+    # if proposed_model_md5 in cached_transcr_models:
+    #     return dill.load(open(cached_models[proposed_model_md5]))
+    #
+    #
+    #
+    # cached_models_path = os.path.join(os.path.expanduser('~'), '.ribohmm', 'cached_transcr_md5s.dill')
+    # if os.path.isfile(cached_models_path):
+    #     cached_models = dill.load(open(cached_models_path))
+    #     proposed_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
+    #     if proposed_model_md5 in cached_models.keys():
+    #         return dill.load(open(cached_models[proposed_model_md5]))
+
+
     transcripts = dict()
     handle = open(filename, "r")
 
+    print('Reading in file')
+    import time
+    start = time.time()
     for line in handle:
         # remove comments
         if line.startswith('#'):
@@ -430,6 +462,9 @@ def load_gtf(filename):
     handle.close()
 
     # generate transcript models
+    print('{}'.format(time.time() - start))
+    start = time.time()
+    print('Generating transcripts')
     keys = transcripts.keys()
     no_exons = list()
     for key in keys:
@@ -442,5 +477,17 @@ def load_gtf(filename):
             # del transcripts[key]
     for no_exon in no_exons:
         del transcripts[no_exon]
+
+    print('{}'.format(time.time() - start))
+
+    # Store model in a cache
+    try:
+        # cache_dir = os.path.join(os.path.expanduser('~'), '.ribohmm')
+        os.makedirs(cache_dir, exist_ok=True)
+        # transcr_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
+        with open(os.path.join(cache_dir, 'transcr.{}.dill'.format(transcr_model_md5)), 'wb') as cache_out:
+            dill.dump(transcripts, cache_out)
+    except:
+        pass  # Silently fail, this is not an essential feature
 
     return transcripts
