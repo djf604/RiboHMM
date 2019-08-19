@@ -1,6 +1,8 @@
 import os
 import json
 import argparse
+import logging
+import time
 
 import pysam
 
@@ -10,6 +12,8 @@ from ribohmm.core.infer_CDS import infer_CDS
 from ribohmm.core.seq import inflate_kozak_model
 from ribohmm.utils import which
 from ribohmm.contrib import load_data
+
+logger = logging.getLogger('main')
 
 
 def common_args(parser):
@@ -99,6 +103,7 @@ def execute_ribohmm(args=None, learn=True, infer=True):
             pysam.index(args['rnaseq_bam'])
 
     # Convert riboseq BAM to tabix
+    start = time.time()
     riboseq_tabix_prefix = convert_riboseq(
         bam_file=args['riboseq_bam'],
         output_directory=args['output_directory'],
@@ -106,33 +111,44 @@ def execute_ribohmm(args=None, learn=True, infer=True):
         tabix_path=tabix_path,
         read_lengths=args['read_lengths']
     )
+    logger.debug('convert_riboseq_to_tabix:{}'.format(time.time() - start))
 
     # Convert RNAseq BAM to tabix
     rnaseq_tabix = None
     if args['rnaseq_bam']:
+        start = time.time()
         rnaseq_tabix = convert_rnaseq(
             bam_file=args['rnaseq_bam'],
             output_directory=args['output_directory'],
             bgzip_path=bgzip_path,
             tabix_path=tabix_path
         )
+        logger.debug('convert_rnaseq_to_tabix:{}'.format(time.time() - start))
 
 
     # Generate major objects once
     print('\n######\nCreating biological models\n######')
     print('Inflating genome model')
+    start = time.time()
     genome_track = load_data.Genome(args['reference_fasta'], args['mappability_tabix_prefix'], args['read_lengths'])
+    logger.debug('inflate_genome_track:{}'.format(time.time() - start))
     print('Inflating transcript models ')
+    start = time.time()
     gtf_model = load_data.load_gtf(args['transcriptome_gtf'])
+    logger.debug('inflate_transcriptome:{}'.format(time.time() - start))
     print('Inflating riboseq model')
+    start = time.time()
     ribo_track = load_data.RiboSeq(riboseq_tabix_prefix, args['read_lengths'])
+    logger.debug('inflate_riboseq_track:{}'.format(time.time() - start))
     rnaseq_track = None
     if rnaseq_tabix:
         print('Inflating RNAseq model')
+        start = time.time()
         rnaseq_track = load_data.RnaSeq(rnaseq_tabix)
+        logger.debug('inflate_rnaseq_track:{}'.format(time.time() - start))
 
     if learn:
-        print('\n######\nStarting to learn model paramters\n######')
+        print('\n######\nStarting to learn model parameters\n######')
         serialized_model = learn_model_parameters(
             genome_track=genome_track,
             transcripts=select_transcripts(

@@ -17,15 +17,19 @@ solvers.options['maxiters'] = 300
 solvers.options['show_progress'] = False
 # logistic = lambda x: 1./(1+np.exp(x))
 
-# @njit
+@njit
 def logistic(x):
     return 1./(1+np.exp(x))
+
+
+def nplog(x):
+    return np.nan_to_num(np.log(x))
 
 # @cython.boundscheck(False)
 # @cython.wraparound(False)
 # @cython.nonecheck(False)
 # cdef double normalize(np.ndarray[np.float64_t, ndim=1] x):
-# @njit
+@njit
 def normalize(x):
     """Compute the log-sum-exp of a real-valued vector,
        avoiding numerical overflow issues.
@@ -277,6 +281,7 @@ class State(object):
     # @cython.nonecheck(False)
     # cdef _forward_update(self, Data data, Transition transition):
     # @jit(nopython=True)
+    # @njit
     def _forward_update(self, data, transition):
 
         # cdef long f, i, s, m
@@ -290,7 +295,7 @@ class State(object):
         Inflate serialized transition dictionary
         """
 
-        logprior = utils.nplog([1, 0, 0, 0, 0, 0, 0, 0, 0])
+        logprior = nplog([1, 0, 0, 0, 0, 0, 0, 0, 0])
         swapidx = np.array([2, 3, 6, 7]).astype(np.uint8)
         self.alpha = np.zeros((3, self.M, self.S), dtype=np.float64)
         self.likelihood = np.zeros((self.M, 3), dtype=np.float64)
@@ -301,8 +306,15 @@ class State(object):
         )
         Q = logistic(-1 * transition['seqparam']['stop'][data.codon_id['stop']])
 
+        # @njit
+        # def _f(swapidx, newalpha, alpha, log_prob, f, m):
+        #     # states 2,3,6,7
+        #     for s in swapidx:
+        #         newalpha[s] = alpha[f, m - 1, s - 1] + log_prob[f, m, s]
+
         # for f from 0 <= f < 3:
         for f in range(3):
+            # print('Iteration {}'.format(f))
 
             newalpha = logprior + data.log_probability[f, 0, :]
             L = normalize(newalpha)
@@ -313,6 +325,9 @@ class State(object):
 
             # for m from 1 <= m < self.M:
             for m in range(1, self.M):
+
+                # _f(swapidx=swapidx, newalpha=newalpha, alpha=self.alpha,
+                #    log_prob=data.log_probability, f=f, m=m)
 
                 # states 2,3,6,7
                 for s in swapidx:
@@ -1397,20 +1412,20 @@ def alpha_func_grad(x, data, states, frames, rescale, beta):
 
     func = 0
     gradient = np.zeros((R,S), dtype=np.float64)
-    for datum,state,frame in zip(data,states,frames):
+    for datum, state, frame in zip(data, states, frames):
                     
         for r in range(R):
 
             for s in range(S):
 
-                new_scale = rescale[r,s,datum.missingness_type[r]]
-                mask = np.logical_not(np.logical_and(new_scale>0,state.pos_first_moment[:,:,s]>0))
+                new_scale = rescale[r, s, datum.missingness_type[r]]
+                mask = np.logical_not(np.logical_and(new_scale > 0, state.pos_first_moment[:, :, s] > 0))
                 if np.all(mask):
                     continue
 
-                argA = MaskedArray(datum.total[:,:,r], mask=mask, fill_value=1) + x[r,s]*beta[r,s]
-                argB = datum.scale*MaskedArray(new_scale, mask=mask, fill_value=1) + beta[r,s]
-                pos = MaskedArray(state.pos_first_moment[:,:,s], mask=mask, fill_value=1)
+                argA = MaskedArray(datum.total[:, :, r], mask=mask, fill_value=1) + x[r, s] * beta[r, s]
+                argB = datum.scale*MaskedArray(new_scale, mask=mask, fill_value=1) + beta[r, s]
+                pos = MaskedArray(state.pos_first_moment[:, :, s], mask=mask, fill_value=1)
                 argC = np.sum(pos, 1)
 
                 func = func + np.sum(frame.posterior * np.sum(pos * \

@@ -10,6 +10,81 @@ MIN_MAP_QUAL = 10
 BEFORE_EXT = 0
 
 
+def merge_beds(beds, bedtools_path):
+    with open('.combined.bed', 'w') as out:
+        subprocess.call(['cat'] + beds, stdout=out)
+
+    with open('.sorted.bed', 'w') as out:
+        subprocess.call([bedtools_path, 'sort', '-i', '.combined.bed'], stdout=out)
+
+    with open('combined.bed', 'w') as out:
+        subprocess.call([bedtools_path, 'merge', '-d', '-1',
+                         '-c', '4', '-o', 'sum'], stdout=out)
+
+    subprocess.call(['rm', '.combined.bed', '.sorted.bed'])
+
+
+def convert(protocol='riboseq', source='bam', sink='tabix', read_lengths=None):
+    """
+
+    :param protocol:
+    :param source: {'bam', 'bed'}
+    :param sink: {'bed', 'tabix'}
+    :param read_lengths:
+    :return:
+    """
+    if protocol == 'riboseq':
+        pass
+    elif protocol == 'rnaseq':
+        pass
+    raise ValueError('Protocol is not supported')
+
+
+def _convert_bam_to_bed(bam_file, output_directory, bgzip_path, read_length=None):
+    """
+    Providing read_length implies this is a riboseq conversion
+    :param bam_file:
+    :param output_directory:
+    :param bgzip_path:
+    :param read_length:
+    :return:
+    """
+    is_riboseq = read_length is not None
+    count_file = os.path.basename(os.path.splitext(bam_file)[BEFORE_EXT]) + '.counts.bed'
+    os.makedirs(os.path.join(output_directory, 'tabix'), exist_ok=True)  # TODO This is not python3 compatible
+    bed_output_path = os.path.join(output_directory, 'tabix', count_file)
+
+    with pysam.AlignmentFile(bam_file, 'rb') as sam_handle, open(bed_output_path) as count_handle:
+        counts = Counter()
+        for read in sam_handle.fetch(until_eof=True):
+            discard_read = (
+                read.is_unmapped or
+                read.mapping_quality < MIN_MAP_QUAL or
+                (is_riboseq and read.query_length != read_length)
+            )
+
+
+            if not discard_read:
+                if is_riboseq:
+                    asite_index = -13 if read.is_reverse else 12
+                    asite = int(read.get_reference_positions()[asite_index])
+                    counts[asite] += 1
+                else:
+                    site = (read.reference_start + read.reference_length - 1
+                            if read.is_reverse else read.reference_start)
+                    counts[site] += 1
+
+
+
+
+        for cname, clen in zip(sam_handle.references, sam_handle.lengths):
+            counts = Counter()
+            for read in sam_handle.fetch(reference=cname):
+                pass
+
+
+
+
 def convert_rnaseq(bam_file, output_directory, bgzip_path, tabix_path):
     """
     Given a path to an RNAseq bam file, convert to tabix format.
@@ -17,7 +92,7 @@ def convert_rnaseq(bam_file, output_directory, bgzip_path, tabix_path):
     :param bgzip_path: str Path to bgzip executable
     :param tabix_path: str Path to tabix executable
     """
-    count_file = os.path.basename(os.path.splitext(bam_file)[BEFORE_EXT])
+    count_file = os.path.basename(os.path.splitext(bam_file)[BEFORE_EXT]) + '.counts.bed'
     os.makedirs(os.path.join(output_directory, 'tabix'), exist_ok=True)
     tabix_output_path = os.path.join(output_directory, 'tabix', count_file)
     with pysam.AlignmentFile(bam_file, 'rb') as sam_handle, open(tabix_output_path, 'w') as count_handle:
@@ -61,7 +136,7 @@ def convert_riboseq(bam_file, output_directory, bgzip_path, tabix_path, read_len
     # file names and handles
     os.makedirs(os.path.join(output_directory, 'tabix'), exist_ok=True)
     count_file_path = os.path.join(output_directory, 'tabix',
-                                   os.path.basename(os.path.splitext(bam_file)[BEFORE_EXT]) + '.{}.len{}.tbx')
+                                   os.path.basename(os.path.splitext(bam_file)[BEFORE_EXT]) + '.{}.len{}.counts.bed')
     # rev_count_file = os.path.splitext(bam_file)[BEFORE_EXT] + '_rev.len{}.tbx'
     sam_handle = pysam.AlignmentFile(bam_file, 'rb')
     # fwd_handle = {r: open('{}.{}'.format(fwd_count_file, r), 'w') for r in read_lengths}
@@ -106,6 +181,7 @@ def convert_riboseq(bam_file, output_directory, bgzip_path, tabix_path, read_len
     for r in read_lengths:
 
         # compress count file
+        # TODO Add a better error message if either of these programs aren't in path
         subprocess.call([bgzip_path, '-f', count_file_path.format('fwd', r)])
         subprocess.call([bgzip_path, '-f', count_file_path.format('rev', r)])
 

@@ -1,7 +1,11 @@
 from collections import defaultdict
+import logging
+import time
 
 import numpy as np
 from ribohmm.core import ribohmm, seq
+
+logger = logging.getLogger('main')
 
 
 def select_transcripts(transcript_models_dict, ribo_track, batch_size):
@@ -13,6 +17,7 @@ def select_transcripts(transcript_models_dict, ribo_track, batch_size):
     :param batch_size: int Return this many transcripts
     :return: list of Transcript models
     """
+    start_ = time.time()
     
     # load all transcripts
     # print('Loading GTF')
@@ -28,19 +33,21 @@ def select_transcripts(transcript_models_dict, ribo_track, batch_size):
     For each transcript, divide the total number of counts in the exons by the length of all exons
     """
     print('Calculating transcript translation rate')
-    import time
     start = time.time()
     transcript_translation_rate = [
         c / float(t.mask.sum())
         for c, t in zip(ribo_track.get_total_counts(transcript_models), transcript_models)
+        # for c, t in zip(ribo_track.get_total_counts(transcript_models[:10000]), transcript_models[:10000])
     ]
-    print('{}'.format(time.time() - start))
+    logger.debug('calculate_transcript_translation_rate:{}'.format(time.time() - start))
+    # print('{}'.format(time.time() - start))
 
     # select top transcripts
     transcripts, transcript_bounds = list(), defaultdict(list)
     """Iterate through the load_data.Transcript objects in order from highest 
     transcript_translation_rate to the lowest"""
     print('Selecting top k transcripts')
+    start = time.time()
     for index in reversed(np.argsort(transcript_translation_rate)):
         transcript = transcript_models[index]
  
@@ -68,7 +75,9 @@ def select_transcripts(transcript_models_dict, ribo_track, batch_size):
         # select fixed number of transcripts for learning
         if len(transcripts) >= batch_size:
             break
+    logger.debug('select_top_k_transcripts:{}'.format(time.time() - start))
 
+    logger.debug('select_transcripts:{}'.format(time.time() - start_))
     return transcripts
 
 
@@ -84,6 +93,7 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
     codon_flags, total_bases = list(), 0
 
     print('Getting RNAseq sequences of transcripts')
+    start = time.time()
     for i, rna_sequence in enumerate(genome_track.get_sequence(transcripts)):
         try:
             sequence = seq.RnaSequence(rna_sequence)
@@ -92,6 +102,7 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
         except:
             print('Failed on transcript {}'.format(i))
             raise
+    logger.debug('get_rna_seq_from_transcripts:{}'.format(time.time() - start))
     print('{} bases covered'.format(total_bases))
 
     # load footprint count data in transcripts
