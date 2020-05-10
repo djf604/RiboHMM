@@ -1,6 +1,7 @@
 import numpy as np
 import pysam
 from functools import reduce
+from copy import deepcopy
 
 import ribohmm.utils as utils
 
@@ -278,10 +279,7 @@ class Transcript():
         self.stop = int(line[4])
 
         # if not specified, transcript is on positive strand
-        if line[6] in ['+','-']:
-            self.strand = line[6]
-        else:
-            self.strand = '+'
+        self.strand = line[6] if line[6] in {'+', '-', '.'} else '.'
 
         self.cdstart = None
         self.cdstop = None
@@ -322,6 +320,13 @@ class Transcript():
     def add_exon(self, line):
         exon = (int(line[3])-1, int(line[4]))
         self.exons.append(exon)
+
+    def get_reverse_copy(self, new_strand='+'):
+        self_copy = deepcopy(self)
+        self_copy.mask = self_copy.mask[::-1]
+
+        self_copy.strand = new_strand
+        return self_copy
 
     def generate_transcript_model(self):
         """

@@ -4,6 +4,8 @@ import warnings
 import json
 import datetime
 
+from copy import deepcopy
+
 import numpy as np
 
 from ribohmm import core, utils
@@ -126,13 +128,7 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
     return None
 
 def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_prefix, ribo_track,
-          rnaseq_track, output_directory):
-
-    # load the model
-    # handle = open(options.model_file, 'rb')
-    # transition = pickle.load(handle)
-    # emission = pickle.load(handle)
-    # handle.close()
+          rnaseq_track, output_directory, true_strand_mode=True):
 
     """
     Load the model from JSON
@@ -140,20 +136,8 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
     model_params = json.load(open(model_file))
 
     # load transcripts
-    # transcript_models = load_data.load_gtf(transcriptome_gtf)
     transcript_names = list(transcript_models.keys())
     N = len(transcript_names)
-    n = int(np.ceil(N/1000))
-    print('N: {}'.format(N))
-    print('n: {}'.format(n))
-    # with open('transcript_names.out', 'w') as tout:
-    #     tout.write('\n'.join(transcript_names) + '\n')
-    
-    # load data tracks
-    # genome_track = load_data.Genome(genome_fasta, mappability_tabix_prefix)
-    # ribo_track = load_data.RiboSeq(riboseq_tabix_prefix, read_lengths)
-    # if rnaseq_tabix is not None:
-    #     rnaseq_track = load_data.RnaSeq(rnaseq_tabix)
 
     # open output file handle
     # file in bed12 format
@@ -163,137 +147,52 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                "protein_seq", "num_exons", "exon_sizes", "exon_starts"]
     handle.write(" ".join(map(str,towrite))+'\n')
 
-    from collections import Counter, defaultdict
-    written_out = Counter()
-    duplicates = defaultdict(list)
-
-    dups = {'ENST00000361567.2',
-             'ENST00000591551.1',
-             'ENST00000540040.1',
-             'ENST00000361681.2',
-             'ENST00000361624.2',
-             'ENST00000387347.2',
-            'ENST00000565981.1',
-            'ENST00000472787.1'}
-
-
-    good_transcript = 'ENST00000565981.1'
-    bad_transcript = 'ENST00000540040.1'
-
-
-
-    check_out = ['ENST00000607058.1',
- 'ENST00000488123.2',
- 'ENST00000540040.1',
- 'ENST00000591551.1',
- 'ENST00000389680.2',
- 'ENST00000387347.2',
- 'ENST00000361390.2',
- 'ENST00000387405.1',
- 'ENST00000387409.1',
- 'ENST00000361624.2',
- 'ENST00000361739.1',
- 'ENST00000362079.2',
- 'ENST00000361335.1',
- 'ENST00000361381.2',
- 'ENST00000387441.1',
- 'ENST00000387449.1',
- 'ENST00000387456.1',
- 'ENST00000361567.2',
- 'ENST00000361681.2',
- 'ENST00000361789.2',
- 'ENST00000387460.2',
- 'ENST00000387461.2']
-
-
-
-    # Find exon counts for all transcripts, both pos and neg
-    alltranscripts = [transcript_models[name] for name in transcript_names]
-    for t in alltranscripts:
-        if t.strand == '-':
-            t.mask = t.mask[::-1]
-            t.strand = '+'
-    pos_exon_counts = ribo_track.get_exon_total_counts(alltranscripts)
-    # pos_transcripts = [t for t, e in zip(alltranscripts, exon_counts) if np.all(e >= 5)]
-    for t in alltranscripts:
-        t.mask = t.mask[::-1]
-        t.strand = '-'
-    neg_exon_counts = ribo_track.get_exon_total_counts(alltranscripts)
-    # neg_transcripts = [t for t, e in zip(alltranscripts, exon_counts) if np.all(e >= 5)]
-
-    # with open('exon_counts.csv', 'w') as out:
-    #     out.write('transcript_id,pos_exon_count,neg_exon_count\n')
-    #     for t, pos_exon, neg_exon in zip(alltranscripts, pos_exon_counts, neg_exon_counts):
-    #         out.write(','.join([str(t.id), str(pos_exon).replace('\n', ''), str(neg_exon).replace('\n', '')]) + '\n')
-    # print('%%%%%%%%%%%%%%%%%Done Writing%%%%%%%%%%%%%%')
-
-
-
-
     for n in range(int(np.ceil(N/1000))):
 
         tnames = transcript_names[n*1000:(n+1)*1000]
-
-        # if good_transcript in tnames:
-        #     print('Good transcript made it into this round')
-        # if bad_transcript in tnames:
-        #     print('Bad transcript in this round')
-
-        # _fast = set(tnames).intersection(dups)
-        # if _fast:
-        #     for _f in _fast:
-        #         print('{} was examined at {}'.format(_f, datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-
-
-
-
-        # with open('tnames' + str(n), 'w') as out:
-        #     out.write('\n'.join(tnames) + '\n')
         alltranscripts = [transcript_models[name] for name in tnames]
-        """
-        This next line adds a couple duplicates at this step
-        """
-        # alltranscripts = alltranscripts + alltranscripts[:5]
 
         # run inference on both strands independently
 
-        # focus on positive strand
-        for t in alltranscripts:
-            if t.strand=='-':
-                t.mask = t.mask[::-1]
-                t.strand = '+'
+
+
+        candidate_transcripts = list()
+        if true_strand_mode:
+            for t in alltranscripts:
+                candidate_transcripts.append(t)
+                if t.strand == '.':
+                    candidate_transcripts.append(t.get_reverse_copy(new_strand='.'))
+
+        else:
+            pass
+
+
+
+        if true_strand_mode:
+            pos_transcripts = [t for t in alltranscripts if t.strand != '-']
+            neg_transcripts = [t for t in alltranscripts if t.strand != '+']
+        else:
+            pos_transcripts, neg_transcripts = list(), list()
+            for t in alltranscripts:
+                if t.strand == '-':
+                    neg_transcripts.append(t)
+                    pos_transcripts.append(t.get_reverse_copy(new_strand='+'))
+                elif t.strand == '+':
+                    pos_transcripts.append(t)
+                    neg_transcripts.append(t.get_reverse_copy(new_strand='-'))
+                else:  # Unknown strand, try in all possibilities
+                    pos_transcripts.append(t)
+                    neg_transcripts.append(t.get_reverse_copy(new_strand='-'))
+                    neg_transcripts.append(t)
+                    pos_transcripts.append(t.get_reverse_copy(new_strand='+'))
 
         # check if all exons have at least 5 footprints
         exon_counts = ribo_track.get_exon_total_counts(alltranscripts)
-        """
-        The duplication MUST be happening on this next line
-        It gets all transcripts which have an exon_count greater than 5
-        The transcripts themselves come from alltranscripts
-        """
-        # print('Pos alltranscripts: {}'.format(len(alltranscripts)))
-        # print('Pos exon counts: {}'.format(len(exon_counts)))
 
 
         transcripts = [t for t,e in zip(alltranscripts,exon_counts) if np.all(e>=5)]
 
-
-        for c in check_out:
-            if c in [t.id for t in transcripts]:
-                print('{} made it past pos exon filter'.format(c))
-
-        # in_good, in_bad = False, False
-        # if good_transcript in [t.id for t in transcripts]:
-        #     in_good = True
-        #     print('Good transcript made it past pos exon filter')
-        #     print('Len of transcripts: {}'.format(len(transcripts)))
-        #
-        # if bad_transcript in [t.id for t in transcripts]:
-        #     in_bad = True
-        #     print('Bad transcript made it past pos exon filter')
-        #     print('Len of transcripts: {}'.format(len(transcripts)))
-
         T = len(transcripts)
-        # print('Pos T: {}'.format(T))
         if T>0:
 
             # load sequence of transcripts and transform sequence data
@@ -318,44 +217,14 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             else:
                 rna_mappability = [np.ones(c.shape,dtype='bool') for c in footprint_counts]
 
-            # run the learning algorithm
-            # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
-            #                        rna_counts, rna_mappability, transition, emission)
-
 
             states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
                                                         rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
 
-            # write results
-            # ig = [write_inferred_cds(handle, transcript, state, frame, rna_sequence) \
-            #       for transcript,state,frame,rna_sequence in zip(transcripts,states,frames,rna_sequences)]
-
-            pos_writes = 0
-
-
-            # pos_dups = [t.id for t in transcripts]
-            # for p in pos_dups:
-            #     if p in dups:
-            #         print('{} was pos about to be written at {}'.format(p, datetime.datetime.now().strftime(
-            #             '%Y-%m-%d %H:%M:%S')))
-
-            # if good_transcript in [t.id for t in transcripts]:
-            #     print('Good transcript about to be pos written')
-            # if bad_transcript in [t.id for t in transcripts]:
-            #     print('Bad transcript about to be pos written')
-
 
 
             for transcript,state,frame,rna_sequence in zip(transcripts,states,frames,rna_sequences):
-                if transcript.id in check_out:
-                    print('{} is being written out positive'.format(transcript.id))
-
-
-                duplicates[transcript.id].append(('positive_strand', transcript))
                 write_inferred_cds(handle, transcript, state, frame, rna_sequence)
-                pos_writes += 1
-                written_out[transcript.id] += 1
-            # print('Positive strand writes: {}'.format(pos_writes))
 
 
         # focus on negative strand
