@@ -21,6 +21,7 @@ def common_args(parser):
                         help='Path to a reference genome in fasta format')
     parser.add_argument('--transcriptome-gtf', required=True,
                         help='Path to a transcriptome in gtf format')
+
     parser.add_argument('--riboseq-bam', required=True,
                         help='Path to a BAM with riboseq mappings')
     parser.add_argument('--rnaseq-bam', help='Path to a BAM with RNAseq mappings')
@@ -30,19 +31,24 @@ def common_args(parser):
     parser.add_argument('--rnaseq-bam-index', help='Path to samtools index for RNAseq alignment file; if not '
                                                    'provided, will infer as alignment.bam.bai; if that file does '
                                                    'not exist, pysam will create it')
+
     parser.add_argument('--mappability-tabix-prefix', help='Path to mappability tabix output by '
                                                            '\'ribohmm mappability-calculate\'')
+
     parser.add_argument('--log-output', help='Path to file to store statistics of the EM algorithm; not output '
                                              'if no path is given')
     parser.add_argument('--read-lengths', nargs='*', type=int, help='Space separated list of riboseq read lengths '
                                                                     '(default: 28 29 30 31)')
+
     parser.add_argument('--purge-tabix', action='store_true',
                         help='Do not keep the generated tabix files')
     parser.add_argument('--kozak-model',
                         help='Path to kozak model (included with this package)')
+
     parser.add_argument('--output-directory', required=True,
                         help='Path prefix for all output: generated tabix files, learned '
                              'model parameters, and final inference output')
+
     parser.add_argument('--bgzip-path', help='Path to bgzip executable, if not in $PATH')
     parser.add_argument('--tabix-path', help='Path to tabix executable, if not in $PATH')
 

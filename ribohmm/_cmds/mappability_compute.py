@@ -25,6 +25,12 @@ def main(args=None):
     bgzip_path = args['bgzip_path'] or which('bgzip')
     tabix_path = args['tabix_path'] or which('tabix')
 
+    # Assert that bgzip and tabix executables are both available
+    if bgzip_path is None:
+        raise FileNotFoundError('Path to a bgzip executable was not provided and could not be found in PATH')
+    if tabix_path is None:
+        raise FileNotFoundError('Path to a tabix executable was not provided and could not be found in PATH')
+
     # file names and handles
     map_file = args['output_tabix']
     map_handle = open(map_file, 'w')

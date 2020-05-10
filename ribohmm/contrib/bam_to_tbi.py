@@ -92,6 +92,12 @@ def convert_rnaseq(bam_file, output_directory, bgzip_path, tabix_path):
     :param bgzip_path: str Path to bgzip executable
     :param tabix_path: str Path to tabix executable
     """
+    # Assert that bgzip and tabix executables are both available
+    if bgzip_path is None:
+        raise FileNotFoundError('Path to a bgzip executable was not provided and could not be found in PATH')
+    if tabix_path is None:
+        raise FileNotFoundError('Path to a tabix executable was not provided and could not be found in PATH')
+
     count_file = os.path.basename(os.path.splitext(bam_file)[BEFORE_EXT]) + '.counts.bed'
     os.makedirs(os.path.join(output_directory, 'tabix'), exist_ok=True)
     tabix_output_path = os.path.join(output_directory, 'tabix', count_file)
@@ -133,6 +139,12 @@ def convert_riboseq(bam_file, output_directory, bgzip_path, tabix_path, read_len
     :param bgzip_path: str Path to bgzip executable
     :param tabix_path: str Path to tabix executable
     """
+    # Assert that bgzip and tabix executables are both available
+    if bgzip_path is None:
+        raise FileNotFoundError('Path to a bgzip executable was not provided and could not be found in PATH')
+    if tabix_path is None:
+        raise FileNotFoundError('Path to a tabix executable was not provided and could not be found in PATH')
+
     # file names and handles
     os.makedirs(os.path.join(output_directory, 'tabix'), exist_ok=True)
     count_file_path = os.path.join(output_directory, 'tabix',
