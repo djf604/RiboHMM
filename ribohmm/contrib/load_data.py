@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import pysam
 from functools import reduce
 
@@ -11,6 +12,7 @@ class Genome():
     def __init__(self, fasta_filename, map_filename, read_lengths):
 
         self._seq_handle = pysam.FastaFile(fasta_filename)
+        # Mappability
         self._map_handles = [pysam.TabixFile(map_filename+'_%d.gz'%r)
                              for r in read_lengths]
         self._read_lengths = read_lengths
@@ -84,15 +86,12 @@ class Genome():
 class RiboSeq():
 
     def __init__(self, file_prefix, read_lengths):
-
-        # self._fwd_handles = [pysam.TabixFile(file_prefix+'_fwd.%d.gz'%r)
-        #                      for r in utils.READ_LENGTHS]
+        # Counts tabix
         self._fwd_handles = [pysam.TabixFile(file_prefix + '.{}.len{}.counts.bed.gz'.format('fwd', r))
                              for r in read_lengths]
-        # self._rev_handles = [pysam.TabixFile(file_prefix+'_rev.%d.gz'%r)
-        #                      for r in utils.READ_LENGTHS]
         self._rev_handles = [pysam.TabixFile(file_prefix + '.{}.len{}.counts.bed.gz'.format('rev', r))
                              for r in read_lengths]
+        self.counts_tbx = pysam.TabixFile()
         self._read_lengths = read_lengths
 
     def get_counts(self, transcripts):
@@ -101,62 +100,86 @@ class RiboSeq():
         :param transcripts: list of load_data.Transcript objects
         :return:
         """
-
-        read_counts = []
+        read_counts = list()
         for transcript in transcripts:
+            tscpt_counts_df = pd.DataFrame(index=transcript.mask.shape[0], columns=self._read_lengths)
+            for count_record in self.counts_tbx.fetch(transcript.chromosome, transcript.start, transcript.stop):
+                # chrom start stop counts fwd/rev read_length
+                chrom, start, stop, asite_count, strandedness, read_length = count_record.split('\t')
+                count_pos = int(start) - transcript.start
+                # This may change, but for now unknown transcript only have positive reads counted
+                if (
+                    read_length in self._read_lengths
+                    and (
+                        (transcript.strand in {'+', '.'} and strandedness == 'fwd')
+                        or (transcript.strand == '-' and strandedness == 'rev')
+                    )
+                ):
+                    tscpt_counts_df.loc[count_pos, read_length] = int(asite_count)
 
-            """utils.READ_LENGTHS = [28, 29, 30, 31]"""
-            rcounts = [np.zeros(transcript.mask.shape, dtype='int') for r in self._read_lengths]
+            tscpt_counts_df = tscpt_counts_df.fillna(0).astype(int)
+            if transcript.strand == '-':
+                tscpt_counts_df = tscpt_counts_df.iloc[::-1]
 
-            """
-            Skip tabix iters that throw exception
-            """
-            tbx_iters = list()
-            if transcript.strand=='+':
-                for handle in self._fwd_handles:
-                    try:
-                        tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
-                    except:
-                        pass
-                # tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
-                #     for handle in self._fwd_handles]
-            else:
-                for handle in self._rev_handles:
-                    try:
-                        tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
-                    except:
-                        pass
-                # tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
-                #     for handle in self._rev_handles]
-
-            for tbx_iter,counts in zip(tbx_iters,rcounts):
-                """counts is one of the above np.zeros() arrays"""
-
-                for tbx in tbx_iter:
-
-                    row = tbx.split('\t')
-                    count = int(row[3])
-                    asite = int(row[1]) - transcript.start
-                    counts[asite] = count
-
-            if transcript.strand=='+':
-                """
-                Turn rcounts from list of four np.arrays to np.array[4, *]
-                Then transpose so that each column corresponds to a utils.READ_LENGTHS value
-                Then convert everything to np.uint64
-                If this is the reverse strand, reverse all the rows
-                
-                So now, each row is a nucleotide in the transcript, and each column is for each of 
-                the four read lengths
-                """
-                rcounts = np.array(rcounts).T.astype(np.uint64)
-            else:
-                rcounts = np.array(rcounts).T.astype(np.uint64)[::-1]
-
-            """Grab only exon counts"""
-            read_counts.append(rcounts[transcript.mask,:])
+            read_counts.append(tscpt_counts_df.loc[transcript.mask.astype(bool)].values)
 
         return read_counts
+
+        # read_counts = []
+        # for transcript in transcripts:
+        #
+        #     """utils.READ_LENGTHS = [28, 29, 30, 31]"""
+        #
+        #     # Count on the transcript, per read length
+        #     rcounts = [np.zeros(transcript.mask.shape, dtype='int') for r in self._read_lengths]
+        #
+        #     """
+        #     Skip tabix iters that throw exception
+        #     """
+        #     tbx_iters = list()
+        #     if transcript.strand=='+':
+        #         for handle in self._fwd_handles:
+        #             try:
+        #                 # Get all records that overlap with this transcript
+        #                 tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
+        #             except:
+        #                 pass
+        #     else:
+        #         for handle in self._rev_handles:
+        #             try:
+        #                 tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
+        #             except:
+        #                 pass
+        #
+        #     # For each of the read lengths, add counts for each of the positions in the transcript
+        #     for tbx_iter,counts in zip(tbx_iters,rcounts):
+        #         """counts is one of the above np.zeros() arrays"""
+        #
+        #         for tbx in tbx_iter:
+        #
+        #             row = tbx.split('\t')
+        #             count = int(row[3])
+        #             asite = int(row[1]) - transcript.start
+        #             counts[asite] = count
+        #
+        #     if transcript.strand=='+':
+        #         """
+        #         Turn rcounts from list of four np.arrays to np.array[4, *]
+        #         Then transpose so that each column corresponds to a utils.READ_LENGTHS value
+        #         Then convert everything to np.uint64
+        #         If this is the reverse strand, turn all columns in reverse
+        #
+        #         So now, each row is a nucleotide in the transcript, and each column is for each of
+        #         the four read lengths
+        #         """
+        #         rcounts = np.array(rcounts).T.astype(np.uint64)
+        #     else:
+        #         rcounts = np.array(rcounts).T.astype(np.uint64)[::-1]
+        #
+        #     """Grab only exon counts"""
+        #     read_counts.append(rcounts[transcript.mask,:])
+        #
+        # return read_counts
 
     def get_total_counts(self, transcripts):
         """
@@ -221,10 +244,36 @@ class RiboSeq():
         ig = [handle.close() for handle in self._fwd_handles]
         ig = [handle.close() for handle in self._rev_handles]
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 class RnaSeq():
 
     def __init__(self, filename):
 
+        # Counts
         self._handle = pysam.TabixFile(filename)
         self.total = 0
         for chrom in self._handle.contigs:

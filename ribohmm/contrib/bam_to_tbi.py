@@ -40,7 +40,7 @@ def convert(protocol='riboseq', source='bam', sink='tabix', read_lengths=None):
     raise ValueError('Protocol is not supported')
 
 
-def _convert_bam_to_bed(bam_file, output_directory, bgzip_path, read_length=None):
+def _convert_bams_to_bed(bam_files, output_directory, bgzip_path, tabix_path, read_lengths=None, output_prefix=None):
     """
     Providing read_length implies this is a riboseq conversion
     :param bam_file:
@@ -49,38 +49,113 @@ def _convert_bam_to_bed(bam_file, output_directory, bgzip_path, read_length=None
     :param read_length:
     :return:
     """
-    is_riboseq = read_length is not None
-    count_file = os.path.basename(os.path.splitext(bam_file)[BEFORE_EXT]) + '.counts.bed'
-    os.makedirs(os.path.join(output_directory, 'tabix'), exist_ok=True)  # TODO This is not python3 compatible
-    bed_output_path = os.path.join(output_directory, 'tabix', count_file)
+    is_riboseq = read_lengths is not None
+    # If a single string is passed, put into list
+    if isinstance(bam_files, str):
+        bam_files = [bam_files]
 
-    with pysam.AlignmentFile(bam_file, 'rb') as sam_handle, open(bed_output_path) as count_handle:
-        counts = Counter()
-        for read in sam_handle.fetch(until_eof=True):
-            discard_read = (
-                read.is_unmapped or
-                read.mapping_quality < MIN_MAP_QUAL or
-                (is_riboseq and read.query_length != read_length)
+    counts = Counter()
+    for bam_file in bam_files:
+        with pysam.AlignmentFile(bam_file, 'rb') as sam_handle:
+            for read in sam_handle.fetch(until_eof=True):
+                discard_read = (
+                    read.is_unmapped or
+                    read.mapping_quality < MIN_MAP_QUAL or
+                    (is_riboseq and read.query_length not in read_lengths)
+                )
+
+                if not discard_read:
+                    if is_riboseq:
+                        asite_index = -13 if read.is_reverse else 12
+                        asite = int(read.get_reference_positions()[asite_index])
+                        # counts[asite] += 1
+                        # (read_length, is_reverse, chrom, asite)
+                        counts[(read.query_length, read.is_reverse, read.reference_name, asite)] += 1
+                    else:
+                        site = (read.reference_start + read.reference_length - 1
+                                if read.is_reverse else read.reference_start)
+                        counts[site] += 1
+                        # (None, is_rev, chrom, site)
+                        counts[(None, read.is_reverse, read.reference_name, site)] += 1
+
+    if output_prefix is None:
+        output_prefix = os.path.basename(os.path.splitext(bam_files[0])[BEFORE_EXT])
+
+    # def sort_by_genomic_position(key):
+    #     chr_map = {str(i): i for i in range(1, 23)}
+    #     chr_map.update({'X': 23, 'Y': 24, 'M': 25, 'MT': 25})
+    #
+    #     chr_name = key.replace('chr', '', 1)
+    #     return chr_map.get(chr_name.upper(), 26)
+
+    # Output sorted BED
+    with open('output.bed', 'w') as output_bed:
+        for read_length, is_reverse, chrom, asite in sorted(counts.keys(), key=lambda r: (r[2], int(r[3]))):
+            # chrom start end counts fwd/rev read_length
+            site_counts = counts[(read_length, is_reverse, chrom, asite)]
+            output_bed.write(
+                '\t'.join([
+                    chrom,
+                    str(asite),
+                    str(asite + 1),
+                    str(site_counts),
+                    'rev' if is_reverse else 'fwd',
+                    str(read_length)
+                ]) + '\n'
             )
 
+    # Bgzip bed file, then create Tabix index
+    subprocess.call([bgzip_path, '-f', 'output.bed'])
+    subprocess.call([tabix_path, '-f', '-b', '2', '-e', '3', '-0', 'output.bed.gz'])
 
-            if not discard_read:
-                if is_riboseq:
-                    asite_index = -13 if read.is_reverse else 12
-                    asite = int(read.get_reference_positions()[asite_index])
-                    counts[asite] += 1
-                else:
-                    site = (read.reference_start + read.reference_length - 1
-                            if read.is_reverse else read.reference_start)
-                    counts[site] += 1
-
-
-
-
-        for cname, clen in zip(sam_handle.references, sam_handle.lengths):
-            counts = Counter()
-            for read in sam_handle.fetch(reference=cname):
-                pass
+    # # Output to read-length BED files
+    # output_beds = {
+    #     read_length: open(output_prefix + '.rl{}.counts.bed'.format(read_length), 'w')
+    #     for read_length in read_lengths
+    # }
+    # for (read_length, chrom, asite), site_counts in counts.items():
+    #     output_beds[read_length].write(
+    #         '\t'.join([chrom, str(asite), str(asite + 1), str(site_counts)]) + '\n'
+    #     )
+    #
+    #
+    #
+    #
+    # count_file = os.path.basename(os.path.splitext(bam_file)[BEFORE_EXT]) + '.counts.bed'
+    # os.makedirs(os.path.join(output_directory, 'tabix'), exist_ok=True)  # TODO This is not python3 compatible
+    # bed_output_path = os.path.join(output_directory, 'tabix', count_file)
+    #
+    # with pysam.AlignmentFile(bam_file, 'rb') as sam_handle, open(bed_output_path) as count_handle:
+    #     counts = Counter()
+    #     for read in sam_handle.fetch(until_eof=True):
+    #         discard_read = (
+    #             read.is_unmapped or
+    #             read.mapping_quality < MIN_MAP_QUAL or
+    #             (is_riboseq and read.query_length not in read_lengths)
+    #         )
+    #
+    #         if not discard_read:
+    #             if is_riboseq:
+    #                 asite_index = -13 if read.is_reverse else 12
+    #                 asite = int(read.get_reference_positions()[asite_index])
+    #                 # counts[asite] += 1
+    #                 # (read_length, chrom, asite)
+    #                 counts[(read.query_length, read.reference_name, asite)] += 1
+    #             else:
+    #                 site = (read.reference_start + read.reference_length - 1
+    #                         if read.is_reverse else read.reference_start)
+    #                 counts[site] += 1
+    #                 # (None, chrom, site)
+    #                 counts[(None, read.reference_name, site)] += 1
+    #
+    #     for read_length in read_lengths:
+    #
+    #
+    #
+    #     for cname, clen in zip(sam_handle.references, sam_handle.lengths):
+    #         counts = Counter()
+    #         for read in sam_handle.fetch(reference=cname):
+    #             pass
 
 
 

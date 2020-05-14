@@ -31,6 +31,16 @@ def common_args(parser):
     parser.add_argument('--rnaseq-bam-index', help='Path to samtools index for RNAseq alignment file; if not '
                                                    'provided, will infer as alignment.bam.bai; if that file does '
                                                    'not exist, pysam will create it')
+    parser.add_argument('--riboseq-counts-tabix', nargs='*',
+                        help='Point to one or more counts BED files. See documentation for further details. '
+                             'The counts files are expected to have a sibling tabix file.'
+                             'A single star (*) can be given at the end of a filepath which denotes the input as a '
+                             'prefix which will be expanded to include all matching files.')
+    parser.add_argument('--riboseq-counts-tabix', nargs='*',
+                        help='Point to one or more counts BED files. See documentation for further details. '
+                             'The counts files are expected to have a sibling tabix file.'
+                             'A single star (*) can be given at the end of a filepath which denotes the input as a '
+                             'prefix which will be expanded to include all matching files.')
 
     parser.add_argument('--mappability-tabix-prefix', help='Path to mappability tabix output by '
                                                            '\'ribohmm mappability-calculate\'')
