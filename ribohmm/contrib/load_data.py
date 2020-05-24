@@ -3,7 +3,7 @@ import pandas as pd
 import pysam
 from functools import reduce
 
-import ribohmm.utils as utils
+# import ribohmm.utils as utils
 
 MIN_MAP_QUAL = 10
 
@@ -85,27 +85,34 @@ class Genome():
 
 class RiboSeq():
 
-    def __init__(self, file_prefix, read_lengths):
-        # Counts tabix
-        self._fwd_handles = [pysam.TabixFile(file_prefix + '.{}.len{}.counts.bed.gz'.format('fwd', r))
-                             for r in read_lengths]
-        self._rev_handles = [pysam.TabixFile(file_prefix + '.{}.len{}.counts.bed.gz'.format('rev', r))
-                             for r in read_lengths]
-        self.counts_tbx = pysam.TabixFile()
+    def __init__(self, riboseq_counts_bed, read_lengths):
+        """
+        riboseq_counts_bed is expected to be bgzip compressed with a tabix index file
+
+        :param riboseq_counts_bed:
+        :param read_lengths:
+        """
+        self._counts_tbx = pysam.TabixFile(riboseq_counts_bed)
         self._read_lengths = read_lengths
 
-    def get_counts(self, transcripts):
+    # TODO I think this could be cached to speed up subsequent access
+    def get_counts(self, transcripts, exon_counts=False):
         """
+        Fetch RiboSeq pileup counts at each base for each given transcript. If exon_counts is True,
+        then this will instead be a sum of pileup counts per exon (instead of per base). The returned
+        data structure is a list of np.array objects.
 
+        :param exon_counts: bool Whether to return counts per base or per exon
         :param transcripts: list of load_data.Transcript objects
-        :return:
+        :return: list np.Array of shape (n_bases|n_exons, n_read_lengths)
         """
         read_counts = list()
         for transcript in transcripts:
-            tscpt_counts_df = pd.DataFrame(index=transcript.mask.shape[0], columns=self._read_lengths)
-            for count_record in self.counts_tbx.fetch(transcript.chromosome, transcript.start, transcript.stop):
+            tscpt_counts_df = pd.DataFrame(index=range(transcript.mask.shape[0]), columns=self._read_lengths)
+            for count_record in self._counts_tbx.fetch(transcript.chromosome, transcript.start, transcript.stop):
                 # chrom start stop counts fwd/rev read_length
                 chrom, start, stop, asite_count, strandedness, read_length = count_record.split('\t')
+                read_length = int(read_length)
                 count_pos = int(start) - transcript.start
                 # This may change, but for now unknown transcript only have positive reads counted
                 if (
@@ -117,132 +124,34 @@ class RiboSeq():
                 ):
                     tscpt_counts_df.loc[count_pos, read_length] = int(asite_count)
 
-            tscpt_counts_df = tscpt_counts_df.fillna(0).astype(int)
-            if transcript.strand == '-':
-                tscpt_counts_df = tscpt_counts_df.iloc[::-1]
+            if exon_counts:
+                tscpt_exons_counts = tscpt_counts_df.fillna(0).astype(int).values
+                read_counts.append(np.array(
+                    [tscpt_exons_counts[start:end].sum() for start, end in transcript.exons]
+                ))
+            else:
+                tscpt_counts_df = tscpt_counts_df.fillna(0).astype(int)
+                if transcript.strand == '-':
+                    tscpt_counts_df = tscpt_counts_df.iloc[::-1]
 
-            read_counts.append(tscpt_counts_df.loc[transcript.mask.astype(bool)].values)
+                read_counts.append(tscpt_counts_df.loc[transcript.mask.astype(bool)].values)
 
         return read_counts
 
-        # read_counts = []
-        # for transcript in transcripts:
-        #
-        #     """utils.READ_LENGTHS = [28, 29, 30, 31]"""
-        #
-        #     # Count on the transcript, per read length
-        #     rcounts = [np.zeros(transcript.mask.shape, dtype='int') for r in self._read_lengths]
-        #
-        #     """
-        #     Skip tabix iters that throw exception
-        #     """
-        #     tbx_iters = list()
-        #     if transcript.strand=='+':
-        #         for handle in self._fwd_handles:
-        #             try:
-        #                 # Get all records that overlap with this transcript
-        #                 tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
-        #             except:
-        #                 pass
-        #     else:
-        #         for handle in self._rev_handles:
-        #             try:
-        #                 tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
-        #             except:
-        #                 pass
-        #
-        #     # For each of the read lengths, add counts for each of the positions in the transcript
-        #     for tbx_iter,counts in zip(tbx_iters,rcounts):
-        #         """counts is one of the above np.zeros() arrays"""
-        #
-        #         for tbx in tbx_iter:
-        #
-        #             row = tbx.split('\t')
-        #             count = int(row[3])
-        #             asite = int(row[1]) - transcript.start
-        #             counts[asite] = count
-        #
-        #     if transcript.strand=='+':
-        #         """
-        #         Turn rcounts from list of four np.arrays to np.array[4, *]
-        #         Then transpose so that each column corresponds to a utils.READ_LENGTHS value
-        #         Then convert everything to np.uint64
-        #         If this is the reverse strand, turn all columns in reverse
-        #
-        #         So now, each row is a nucleotide in the transcript, and each column is for each of
-        #         the four read lengths
-        #         """
-        #         rcounts = np.array(rcounts).T.astype(np.uint64)
-        #     else:
-        #         rcounts = np.array(rcounts).T.astype(np.uint64)[::-1]
-        #
-        #     """Grab only exon counts"""
-        #     read_counts.append(rcounts[transcript.mask,:])
-        #
-        # return read_counts
-
     def get_total_counts(self, transcripts):
         """
+        Get the total number of RiboSeq reads that fall within each transcript.
 
         :param transcripts: list of load_data.Transcript objects
         :return: np.array[len(transcripts),]
         """
-
-        """Get a list of exons counts, one for each transcript"""
-        read_counts = self.get_counts(transcripts)
-        """Total counts among all read lengths for each transcript"""
-        total_counts = np.array([counts.sum() for counts in read_counts])
-        return total_counts
+        return np.array([counts.sum() for counts in self.get_counts(transcripts)])
 
     def get_exon_total_counts(self, transcripts):
-
-        exon_counts = []
-        for transcript in transcripts:
-
-            rcounts = [np.zeros(transcript.mask.shape, dtype='int') for r in self._read_lengths]
-
-            """
-            Ignore those transcripts for which tabix throws an exception
-            """
-            tbx_iters = list()
-            if transcript.strand=='+':
-                for handle in self._fwd_handles:
-                    try:
-                        tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
-                    except:
-                        pass
-                # tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
-                #     for handle in self._fwd_handles]
-            else:
-                for handle in self._rev_handles:
-                    try:
-                        tbx_iters.append(handle.fetch(transcript.chromosome, transcript.start, transcript.stop))
-                    except:
-                        pass
-                # tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop) \
-                #     for handle in self._rev_handles]
-                # Remove all transcripts if there's an error
-                # Based on transcript ID
-
-            for tbx_iter,counts in zip(tbx_iters,rcounts):
-
-                for tbx in tbx_iter:
-
-                    row = tbx.split('\t')
-                    count = int(row[3])
-                    asite = int(row[1]) - transcript.start
-                    counts[asite] = count
-
-            rcounts = np.array(rcounts).T.astype(np.uint64)
-            exon_counts.append(np.array([rcounts[start:end,:].sum() 
-                               for start,end in transcript.exons]))
-
-        return exon_counts
+        return self.get_counts(transcripts, exon_counts=True)
 
     def close(self):
-
-        ig = [handle.close() for handle in self._fwd_handles]
-        ig = [handle.close() for handle in self._rev_handles]
+        self._counts_tbx.close()
 
 
 
@@ -312,65 +221,54 @@ class RnaSeq():
 
         self._handle.close()
 
+
 class Transcript():
+    def __init__(self, chrom, start, stop, strand, attrs):
+        self.chromosome = chrom if chrom.startswith('c') else 'chr{}'.format(chrom)
+        self.start = int(start)
+        self.stop = int(stop)
 
-    def __init__(self, line, attr):
+        self.strand = strand if strand in {'+', '-'} else '.'
+
         """
-
-        :param line: All of the columns of a GTF record
-        :param attr: dict of GTF attributes, in the last column
+        This puts into attr a dictionary of GTF attributes
+        ex.
+        ['gene_id "ENSG00000223972.4"',
+         ' transcript_id "ENSG00000223972.4"',
+         ' gene_type "pseudogene"',
+         ' gene_status "KNOWN"',
+         ' gene_name "DDX11L1"',
+         ' transcript_type "pseudogene"',
+         ' transcript_status "KNOWN"',
+         ' transcript_name "DDX11L1"',
+         ' level 2',
+         ' havana_gene "OTTHUMG00000000961.2"']
         """
+        if isinstance(attrs, str):
+            attrs = dict([
+                (ln.split()[0], eval(ln.split()[1]))
+                for ln in attrs.split(';')[:-1]
+            ])
+        assert isinstance(attrs, dict)
 
-        self.id = attr['transcript_id']
-        self.chromosome = line[0]
-        self.start = int(line[3])-1
-        self.stop = int(line[4])
-
-        # if not specified, transcript is on positive strand
-        if line[6] in ['+','-']:
-            self.strand = line[6]
-        else:
-            self.strand = '+'
-
+        self.id = attrs['transcript_id']
         self.cdstart = None
         self.cdstop = None
-        self.exons = []
+        self.exons = list()
         self.has_CDS = False
         self.proteinid = ''
 
         # add attribute fields that are available
-        try:
-            self.type = attr['transcript_type']
-        except KeyError:
-            pass
-        try:
-            self.type = attr['gene_biotype']
-        except KeyError:
-            pass
-        try:
-            self.geneid = attr['gene_id']
-        except KeyError:
-            pass
-        try:
-            self.genename = attr['gene_name']
-        except KeyError:
-            pass
-        try:
-            self.ref_transcript_id = attr['reference_id']
-        except KeyError:
-            pass
-        try:
-            self.ref_gene_id = attr['ref_gene_id']
-        except KeyError:
-            pass
-        try:
-            self.genename = attr['ref_gene_name']
-        except KeyError:
-            pass
+        self.type = attrs.get('transcript_type')
+        self.gene_biotype = attrs.get('gene_biotype')
+        self.geneid = attrs.get('gene_id')
+        self.genename = attrs.get('gene_name')
+        self.ref_transcript_id = attrs.get('reference_id')
+        self.ref_gene_id = attrs.get('ref_gene_id')
+        self.genename = attrs.get('ref_gene_name')
 
-    def add_exon(self, line):
-        exon = (int(line[3])-1, int(line[4]))
-        self.exons.append(exon)
+    def add_exon(self, start, stop):
+        self.exons.append((int(start), int(stop)))
 
     def generate_transcript_model(self):
         """
@@ -378,7 +276,7 @@ class Transcript():
         :return:
         """
 
-        if len(self.exons)>0:
+        if self.exons:
 
             # order exons
             """Sort self.exons::list by start coordinate"""
@@ -411,7 +309,8 @@ class Transcript():
             # no exons for transcript; remove
             raise ValueError
 
-def load_gtf(filename):
+
+def load_gtf(filename, use_cache=True):
     """
     Returns a dictionary of transcript_id::str -> Transcript
     :param filename:
@@ -422,13 +321,14 @@ def load_gtf(filename):
     import os
     import dill
     import hashlib
-    cache_dir = os.path.join(os.path.expanduser('~'), '.ribohmm')
-    transcr_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
-    try:
-        with open(os.path.join(cache_dir, 'transcr.{}.dill'.format(transcr_model_md5)), 'rb') as cache_in:
-            return dill.load(cache_in)
-    except:
-        pass  # Silently fail, the cache does not exist
+    if use_cache:
+        cache_dir = os.path.join(os.path.expanduser('~'), '.ribohmm')
+        transcr_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
+        try:
+            with open(os.path.join(cache_dir, 'transcr.{}.dill'.format(transcr_model_md5)), 'rb') as cache_in:
+                return dill.load(cache_in)
+        except:
+            pass  # Silently fail, the cache does not exist
 
 
     # cached_transcr_models = [c.split('.')[1] for c in os.listdir(cache_dir) if c.startswith('transcr_')]
@@ -450,8 +350,6 @@ def load_gtf(filename):
     handle = open(filename, "r")
 
     print('Reading in file')
-    import time
-    start = time.time()
     for line in handle:
         # remove comments
         if line.startswith('#'):
@@ -472,71 +370,85 @@ def load_gtf(filename):
          ' level 2',
          ' havana_gene "OTTHUMG00000000961.2"']
         """
-        data = line.strip().split("\t")
+        gtf_record = line.strip().split('\t')
 
         """
         I think the eval() here is to get rid of surrounding double quotes
         ex. '"ENSG00000223972.4"' => 'ENSG00000223972.4'
         """
-        attr = dict([
+        attrs = dict([
             (ln.split()[0], eval(ln.split()[1]))
-            for ln in data[8].split(';')[:-1]
+            for ln in gtf_record[8].split(';')[:-1]
         ])
 
-        # identify chromosome of the transcript
-        if data[0].startswith('c'):
-            chrom = data[0]
-        else:
-            chrom = 'chr%s'%data[0]
-        data[0] = chrom
+        # # identify chromosome of the transcript
+        # if data[0].startswith('c'):
+        #     chrom = data[0]
+        # else:
+        #     chrom = 'chr%s'%data[0]
+        # data[0] = chrom
+        chrom = gtf_record[0] if gtf_record[0].startswith('c') else 'chr{}'.format(gtf_record[0])
+        start = int(gtf_record[3]) - 1
+        stop = int(gtf_record[4])
+        strand = gtf_record[6].strip()
 
-        transcript_id = attr['transcript_id']
-        try:
-        
-            # if transcript is in dictionary, only parse exons
-            """Check if transcript is already in the dictionary"""
-            transcripts[transcript_id]
-            if data[2]=='exon':
-                transcripts[transcript_id].add_exon(data)
-            else:
-                pass
-        
-        except KeyError:
-            """Will except to here if transcript_id is not yet in transcripts dict"""
+        transcript_id = attrs.get('transcript_id')
+        if transcript_id in transcripts and gtf_record[2].strip() == 'exon':
+            # TODO I think it would be a good idea to have an 'exon cache' and add exons after all main transcript
+            # records have been added
+            transcripts[transcript_id].add_exon(start, stop)
+        elif transcript_id not in transcripts and gtf_record[2].strip() == 'transcript':
+            transcripts[transcript_id] = Transcript(
+                chrom, start, stop,
+                # TODO In a later version we may want to implement a more sophisticated approach, adding two
+                # transcripts if the strand is unknown
+                strand=strand,
+                attrs=attrs
+            )
 
-            if data[2]=='transcript':
-                # initialize new transcript
-                transcripts[transcript_id] = Transcript(data, attr)
+
+
+        # try:
+        #
+        #     # if transcript is in dictionary, only parse exons
+        #     """Check if transcript is already in the dictionary"""
+        #     transcripts[transcript_id]
+        #     if data[2]=='exon':
+        #         transcripts[transcript_id].add_exon(data)
+        #     else:
+        #         pass
+        #
+        # except KeyError:
+        #     """Will except to here if transcript_id is not yet in transcripts dict"""
+        #
+        #     if data[2]=='transcript':
+        #         # initialize new transcript
+        #         transcripts[transcript_id] = Transcript(data, attr)
                 
     handle.close()
 
     # generate transcript models
-    print('{}'.format(time.time() - start))
-    start = time.time()
-    print('Generating transcripts')
-    keys = transcripts.keys()
+    print('Generating transcript models')
     no_exons = list()
-    for key in keys:
+    for transcript_id, transcript in transcripts.items():
         try:
-            transcripts[key].generate_transcript_model()
+            transcript.generate_transcript_model()
         except ValueError:
             """If this happens that means there were no exons in the Transcript object"""
-            print('There were no exons in Transcript {}'.format(key))
-            no_exons.append(key)
-            # del transcripts[key]
-    for no_exon in no_exons:
-        del transcripts[no_exon]
-
-    print('{}'.format(time.time() - start))
+            print('There were no exons in Transcript {}'.format(transcript_id))
+            no_exons.append(transcript_id)
+    for transcript_id_no_exons in no_exons:
+        del transcripts[transcript_id_no_exons]
 
     # Store model in a cache
-    try:
-        # cache_dir = os.path.join(os.path.expanduser('~'), '.ribohmm')
-        os.makedirs(cache_dir, exist_ok=True)
-        # transcr_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
-        with open(os.path.join(cache_dir, 'transcr.{}.dill'.format(transcr_model_md5)), 'wb') as cache_out:
-            dill.dump(transcripts, cache_out)
-    except:
-        pass  # Silently fail, this is not an essential feature
+    if use_cache:
+        try:
+            # cache_dir = os.path.join(os.path.expanduser('~'), '.ribohmm')
+            os.makedirs(cache_dir, exist_ok=True)
+            # transcr_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
+            with open(os.path.join(cache_dir, 'transcr.{}.dill'.format(transcr_model_md5)), 'wb') as cache_out:
+                dill.dump(transcripts, cache_out)
+        except:
+            pass  # Silently fail, this is not an essential feature
 
     return transcripts
