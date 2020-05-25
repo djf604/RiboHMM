@@ -179,47 +179,35 @@ class RiboSeq():
 
 
 class RnaSeq():
+    PILEUP_COUNT = 3
 
-    def __init__(self, filename):
-
+    def __init__(self, rnaseq_counts_bed):
         # Counts
-        self._handle = pysam.TabixFile(filename)
+        self._counts_tbx = pysam.TabixFile(rnaseq_counts_bed)
         self.total = 0
-        for chrom in self._handle.contigs:
-            self.total += reduce(lambda x,y: x+y, (int(tbx.split('\t')[3]) for tbx in self._handle.fetch(chrom)))
+        for chrom in self._counts_tbx.contigs:
+            self.total += reduce(
+                lambda x, y: x + y,
+                (int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom))
+            )
 
     def get_total_counts(self, transcripts):
-
-        total_counts = []
+        total_counts = list()
         for transcript in transcripts:
-
-            try:
-                tbx_iter = self._handle.fetch(transcript.chromosome, transcript.start, transcript.stop)
-            except:
-                continue
-
-            if transcript.strand=='+':
-                mask = transcript.mask
-            else:
-                mask = transcript.mask[::-1]
-
+            mask = transcript.mask if transcript.strand == '+' else transcript.mask[::-1]
             counts = 0
-            for tbx in tbx_iter:
+            for count_record in self._counts_tbx.fetch(transcript.chromosome, transcript.start, transcript.stop):
+                chrom, start, stop, asite_count, strandedness, _ = count_record.split('\t')
+                count_pos = int(start) - transcript.start
+                if mask[count_pos]:
+                    counts += 1  # TODO This is pending input from Sidney, about whether we should add 1 or count
 
-                row = tbx.split('\t')
-                site = int(row[1])-transcript.start
-                count = int(row[3])
-                if mask[site]:
-                    counts += 1
+            total_counts.append(max(1, counts) * 1e6 / (transcript.L * self.total))
 
-            total_counts.append(max([1,counts])*1e6/float(transcript.L*self.total))
-
-        total_counts = np.array(total_counts)
-        return total_counts
+        return np.array(total_counts)
 
     def close(self):
-
-        self._handle.close()
+        self._counts_tbx.close()
 
 
 class Transcript():
