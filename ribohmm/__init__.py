@@ -12,6 +12,11 @@ def execute_from_command_line():
     parser = argparse.ArgumentParser(prog='ribohmm')
     subparsers = parser.add_subparsers()
 
+    # TODO Break this all up into two separate executables: ribohmm and ribohmm-utils, where the former is the main
+    # program, and the latter is where the mappability and bam_to_counts functions live
+    # This way I can add --learn-only and --infer-only commands to the ribohmm executable without having an something
+    # awkward like `ribohmm run` in order to run the main program
+
     subprograms = [
         # (infer, 'infer', 'Main RiboHMM algorithm for CDS inference'),
         (learn_model, 'learn-model', 'Only learn model parameters'),
