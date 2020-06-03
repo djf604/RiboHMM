@@ -2,7 +2,8 @@ import argparse
 import logging
 from argparse import RawDescriptionHelpFormatter
 
-from ribohmm._cmds import learn_model, infer_cds, learn_infer, mappability_generate, mappability_compute
+from ribohmm._cmds import (learn_model, infer_cds, learn_infer, mappability_generate, mappability_compute,
+                           bam_to_counts)
 
 
 def execute_from_command_line():
@@ -19,6 +20,7 @@ def execute_from_command_line():
         (mappability_generate, 'mappability-generate', 'Generate a mappability FASTQ for alignment'),
         (mappability_compute, 'mappability-compute', 'Compute mappability from aligned FASTQ '
                                                      'from mappability-generate'),
+        (bam_to_counts, 'bam-to-counts', 'Converts one or more BAMs to counts')
         # (None, 'merge-bed', 'None'),
         # (None, 'convert', 'None')
     ]
@@ -32,4 +34,5 @@ def execute_from_command_line():
         module.populate_parser(subp)
 
     args = parser.parse_args()
+    # TODO catch if there's no sub command
     args.func(vars(args))

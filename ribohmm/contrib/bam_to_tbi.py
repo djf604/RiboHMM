@@ -10,37 +10,37 @@ MIN_MAP_QUAL = 10
 BEFORE_EXT = 0
 
 
-def merge_beds(beds, bedtools_path):
-    with open('.combined.bed', 'w') as out:
-        subprocess.call(['cat'] + beds, stdout=out)
+# def merge_beds(beds, bedtools_path):
+#     with open('.combined.bed', 'w') as out:
+#         subprocess.call(['cat'] + beds, stdout=out)
+#
+#     with open('.sorted.bed', 'w') as out:
+#         subprocess.call([bedtools_path, 'sort', '-i', '.combined.bed'], stdout=out)
+#
+#     with open('combined.bed', 'w') as out:
+#         subprocess.call([bedtools_path, 'merge', '-d', '-1',
+#                          '-c', '4', '-o', 'sum'], stdout=out)
+#
+#     subprocess.call(['rm', '.combined.bed', '.sorted.bed'])
+#
+#
+# def convert(protocol='riboseq', source='bam', sink='tabix', read_lengths=None):
+#     """
+#
+#     :param protocol:
+#     :param source: {'bam', 'bed'}
+#     :param sink: {'bed', 'tabix'}
+#     :param read_lengths:
+#     :return:
+#     """
+#     if protocol == 'riboseq':
+#         pass
+#     elif protocol == 'rnaseq':
+#         pass
+#     raise ValueError('Protocol is not supported')
 
-    with open('.sorted.bed', 'w') as out:
-        subprocess.call([bedtools_path, 'sort', '-i', '.combined.bed'], stdout=out)
 
-    with open('combined.bed', 'w') as out:
-        subprocess.call([bedtools_path, 'merge', '-d', '-1',
-                         '-c', '4', '-o', 'sum'], stdout=out)
-
-    subprocess.call(['rm', '.combined.bed', '.sorted.bed'])
-
-
-def convert(protocol='riboseq', source='bam', sink='tabix', read_lengths=None):
-    """
-
-    :param protocol:
-    :param source: {'bam', 'bed'}
-    :param sink: {'bed', 'tabix'}
-    :param read_lengths:
-    :return:
-    """
-    if protocol == 'riboseq':
-        pass
-    elif protocol == 'rnaseq':
-        pass
-    raise ValueError('Protocol is not supported')
-
-
-def _convert_bams_to_bed(bam_files, bgzip_path, tabix_path, read_lengths=None, output_prefix=None):
+def convert_bams_to_bed(bam_files, bgzip_path=None, tabix_path=None, read_lengths=None, output_prefix=None):
     """
     Providing read_length implies this is a riboseq conversion
     :param bam_file:
@@ -92,7 +92,6 @@ def _convert_bams_to_bed(bam_files, bgzip_path, tabix_path, read_lengths=None, o
     # Output sorted BED
     output_bed_path = '{}.{}.counts.bed'.format(output_prefix, 'ribo' if is_riboseq else 'rna')
     with open(output_bed_path, 'w') as output_bed:
-        print(list(counts.keys())[0])
         for read_length, is_reverse, chrom, asite in sorted(counts.keys(), key=lambda r: (r[2], int(r[3]))):
             # chrom start end counts fwd/rev read_length
             site_counts = counts[(read_length, is_reverse, chrom, asite)]

@@ -36,7 +36,7 @@ def common_args(parser):
                              'The counts files are expected to have a sibling tabix file.'
                              'A single star (*) can be given at the end of a filepath which denotes the input as a '
                              'prefix which will be expanded to include all matching files.')
-    parser.add_argument('--riboseq-counts-tabix', nargs='*',
+    parser.add_argument('--rnaseq-counts-tabix', nargs='*',
                         help='Point to one or more counts BED files. See documentation for further details. '
                              'The counts files are expected to have a sibling tabix file.'
                              'A single star (*) can be given at the end of a filepath which denotes the input as a '

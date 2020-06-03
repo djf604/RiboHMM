@@ -42,7 +42,7 @@ def main(args=None):
         sam_iter = sam_handle.fetch(reference=cname)
 
         # initialize mappable positions
-        mappable_positions = []
+        mappable_positions = list()
         for read in sam_iter:
 
             # skip read if unmapped or mapping quality is too low
@@ -83,13 +83,11 @@ def main(args=None):
     map_handle.close()
 
     # compress count file
-    pipe = subprocess.Popen("%s -f %s" % (bgzip_path, map_file), \
-                            stdout=subprocess.PIPE, shell=True)
+    pipe = subprocess.Popen('{} -f {}'.format(bgzip_path, map_file), stdout=subprocess.PIPE, shell=True)
     stdout = pipe.communicate()[0]
 
     # index count file
-    pipe = subprocess.Popen("%s -f -b 2 -e 3 -0 %s.gz" % (tabix_path, map_file), \
-                            stdout=subprocess.PIPE, shell=True)
+    pipe = subprocess.Popen('{} -f -b 2 -e 3 -0 {}.gz'.format(tabix_path, map_file), stdout=subprocess.PIPE, shell=True)
     stdout = pipe.communicate()[0]
 
     print('Completed computing mappability from BAM file {}'.format(args['mappability_bam']))

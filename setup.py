@@ -10,8 +10,8 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     package_data={
-            'ribohmm': ['include/*']
-        },
+        'ribohmm': ['include/*']
+    },
     entry_points={
         'console_scripts': ['ribohmm = ribohmm:execute_from_command_line']
     },
