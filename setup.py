@@ -13,7 +13,10 @@ setup(
         'ribohmm': ['include/*']
     },
     entry_points={
-        'console_scripts': ['ribohmm = ribohmm:execute_from_command_line']
+        'console_scripts': [
+            'ribohmm = ribohmm:execute_from_command_line',
+            'ribohmm-utils = ribohmm:execute_utils_from_command_line'
+        ]
     },
     install_requires=['pysam', 'cvxopt', 'numpy', 'scipy', 'numba', 'dill'],
     classifiers=[
