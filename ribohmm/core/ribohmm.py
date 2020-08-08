@@ -17,7 +17,7 @@ solvers.options['maxiters'] = 300
 solvers.options['show_progress'] = False
 # logistic = lambda x: 1./(1+np.exp(x))
 
-@njit
+# @njit
 def logistic(x):
     return 1./(1+np.exp(x))
 
@@ -29,7 +29,7 @@ def nplog(x):
 # @cython.wraparound(False)
 # @cython.nonecheck(False)
 # cdef double normalize(np.ndarray[np.float64_t, ndim=1] x):
-@njit
+# @njit
 def normalize(x):
     """Compute the log-sum-exp of a real-valued vector,
        avoiding numerical overflow issues.

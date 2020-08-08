@@ -6,13 +6,14 @@ import time
 
 import pysam
 
-from ribohmm.contrib.bam_to_tbi import convert_riboseq, convert_rnaseq
+from ribohmm.contrib.bam_to_tbi import convert_riboseq, convert_rnaseq, convert_bams_to_bed
 from ribohmm.core.learn_model import select_transcripts, learn_model_parameters
 from ribohmm.core.infer_CDS import infer_CDS
 from ribohmm.core.seq import inflate_kozak_model
 from ribohmm.utils import which
 from ribohmm.contrib import load_data
 
+BEFORE_EXT = 0
 logger = logging.getLogger('main')
 
 
@@ -41,28 +42,31 @@ def populate_parser(parser: argparse.ArgumentParser):
                               )
 
     # Main input data paths
-    common_group.add_argument('--riboseq-bams', required=True, nargs='*',
-                              help='Path to a BAM with riboseq mappings')
-    common_group.add_argument('--rnaseq-bams', nargs='*', help='Path to a BAM with RNAseq mappings')
+    riboseq_input_mutex = common_group.add_mutually_exclusive_group()
+    riboseq_input_mutex.add_argument('--riboseq-bams', nargs='*',
+                                     help='Path to a BAM with riboseq mappings')
+    riboseq_input_mutex.add_argument('--riboseq-counts-tabix',
+                                     help='Point to a RiboSeq counts BED file. See documentation for further details. '
+                                          'The counts files are expected to be tabix indexed.'
+    )
+
+    rnaseq_input_mutex = common_group.add_mutually_exclusive_group()
+    rnaseq_input_mutex.add_argument('--rnaseq-bams', nargs='*', help='Path to a BAM with RNAseq mappings')
+    rnaseq_input_mutex.add_argument('--rnaseq-counts-tabix',
+                                    help='Point to an RNAseq counts BED file. See documentation for further details. '
+                                         'The counts files are expected to be tabix indexed.'
+    )
     # TODO Now there may be more than one BAM index
-    common_group.add_argument('--riboseq-bam-index',
-                              help='Path to samtools index for Riboseq alignment file; if not '
-                                   'provided, will infer as alignment.bam.bai; if that file does '
-                                   'not exist, RiboHMM will create it'
-    )
-    common_group.add_argument('--rnaseq-bam-index',
-                              help='Path to samtools index for RNAseq alignment file; if not '
-                                   'provided, will infer as alignment.bam.bai; if that file does '
-                                   'not exist, RiboHMM will create it'
-    )
-    common_group.add_argument('--riboseq-counts-tabix',
-                              help='Point to a RiboSeq counts BED file. See documentation for further details. '
-                                   'The counts files are expected to be tabix indexed.'
-    )
-    common_group.add_argument('--rnaseq-counts-tabix',
-                              help='Point to an RNAseq counts BED file. See documentation for further details. '
-                                   'The counts files are expected to be tabix indexed.'
-    )
+    # common_group.add_argument('--riboseq-bam-index',
+    #                           help='Path to samtools index for Riboseq alignment file; if not '
+    #                                'provided, will infer as alignment.bam.bai; if that file does '
+    #                                'not exist, RiboHMM will create it'
+    # )
+    # common_group.add_argument('--rnaseq-bam-index',
+    #                           help='Path to samtools index for RNAseq alignment file; if not '
+    #                                'provided, will infer as alignment.bam.bai; if that file does '
+    #                                'not exist, RiboHMM will create it'
+    # )
 
     # Peripheral input data paths
     common_group.add_argument('--mappability-tabix-prefix', help='Path to mappability tabix output by '
@@ -106,7 +110,7 @@ def populate_parser(parser: argparse.ArgumentParser):
         title='Infer Arguments',
         description='These arguments pertain only to the infer step and will be ignored unless --infer-only is given'
     )
-    infer_group.add_argument('--model-parameters', required=True,
+    infer_group.add_argument('--model-parameters',
                              help='Path to JSON file of model parameters generated with \'ribohmm learn-model\'')
 
 
@@ -201,37 +205,77 @@ def execute_ribohmm(args, learn=True, infer=True):
     inflate_kozak_model(args['kozak_model'])
 
     # Verify or generate BAM file indices
-    if not args['riboseq_bam_index'] or not os.path.isfile(args['riboseq_bam_index']):
-        if not os.path.isfile(args['riboseq_bam'] + '.bai'):
-            print('Generating index for {}'.format(args['riboseq_bam']))
-            pysam.index(args['riboseq_bam'])
-    if args['rnaseq_bam'] and (not args['rnaseq_bam_index'] or not os.path.isfile(args['rnaseq_bam_index'])):
-        if not os.path.isfile(args['rnaseq_bam'] + '.bai'):
-            print('Generating index for {}'.format(args['rnaseq_bam']))
-            pysam.index(args['rnaseq_bam'])
+    # if not args['riboseq_bam_index'] or not os.path.isfile(args['riboseq_bam_index']):
+    #     if not os.path.isfile(args['riboseq_bam'] + '.bai'):
+    #         print('Generating index for {}'.format(args['riboseq_bam']))
+    #         pysam.index(args['riboseq_bam'])
+    # if args['rnaseq_bam'] and (not args['rnaseq_bam_index'] or not os.path.isfile(args['rnaseq_bam_index'])):
+    #     if not os.path.isfile(args['rnaseq_bam'] + '.bai'):
+    #         print('Generating index for {}'.format(args['rnaseq_bam']))
+    #         pysam.index(args['rnaseq_bam'])
 
     # Convert riboseq BAM to tabix
-    start = time.time()
-    riboseq_tabix_prefix = convert_riboseq(
-        bam_file=args['riboseq_bam'],
-        output_directory=args['output_directory'],
+    # start = time.time()
+
+    riboseq_counts_bed = convert_bams_to_bed(
+        bam_files=args['riboseq_bams'],
+        output_prefix=os.path.join(
+            args['output_directory'],
+            os.path.basename(os.path.splitext(args['riboseq_bams'][0])[BEFORE_EXT])
+        ),
+        read_lengths=args['read_lengths'],
         bgzip_path=bgzip_path,
-        tabix_path=tabix_path,
-        read_lengths=args['read_lengths']
-    )
-    logger.debug('convert_riboseq_to_tabix:{}'.format(time.time() - start))
+        tabix_path=tabix_path
+    ) if args['riboseq_bams'] else args['riboseq_counts_tabix']
+    # Or from the command line arguments
+
+    # riboseq_tabix_prefix = convert_riboseq(
+    #     bam_file=args['riboseq_bams'],
+    #     output_directory=args['output_directory'],
+    #     bgzip_path=bgzip_path,
+    #     tabix_path=tabix_path,
+    #     read_lengths=args['read_lengths']
+    # )
+    # logger.debug('convert_riboseq_to_tabix:{}'.format(time.time() - start))
 
     # Convert RNAseq BAM to tabix
-    rnaseq_tabix = None
-    if args['rnaseq_bam']:
-        start = time.time()
-        rnaseq_tabix = convert_rnaseq(
-            bam_file=args['rnaseq_bam'],
-            output_directory=args['output_directory'],
+    rnaseq_counts_bed = args['rnaseq_counts_tabix']
+    if args['rnaseq_bams']:
+        # start = time.time()
+        rnaseq_counts_bed = convert_bams_to_bed(
+            bam_files=args['rnaseq_bams'],
+            output_prefix=os.path.join(
+                args['output_directory'],
+                os.path.basename(os.path.splitext(args['rnaseq_bams'][0])[BEFORE_EXT])
+            ),
+            read_lengths=None,
             bgzip_path=bgzip_path,
             tabix_path=tabix_path
         )
-        logger.debug('convert_rnaseq_to_tabix:{}'.format(time.time() - start))
+        # logger.debug('convert_rnaseq_to_tabix:{}'.format(time.time() - start))
+
+    # # Convert riboseq BAM to tabix
+    # start = time.time()
+    # riboseq_tabix_prefix = convert_riboseq(
+    #     bam_file=args['riboseq_bam'],
+    #     output_directory=args['output_directory'],
+    #     bgzip_path=bgzip_path,
+    #     tabix_path=tabix_path,
+    #     read_lengths=args['read_lengths']
+    # )
+    # logger.debug('convert_riboseq_to_tabix:{}'.format(time.time() - start))
+    #
+    # # Convert RNAseq BAM to tabix
+    # rnaseq_tabix = None
+    # if args['rnaseq_bam']:
+    #     start = time.time()
+    #     rnaseq_tabix = convert_rnaseq(
+    #         bam_file=args['rnaseq_bam'],
+    #         output_directory=args['output_directory'],
+    #         bgzip_path=bgzip_path,
+    #         tabix_path=tabix_path
+    #     )
+    #     logger.debug('convert_rnaseq_to_tabix:{}'.format(time.time() - start))
 
 
     # Generate major objects once
@@ -246,13 +290,13 @@ def execute_ribohmm(args, learn=True, infer=True):
     logger.debug('inflate_transcriptome:{}'.format(time.time() - start))
     print('Inflating riboseq model')
     start = time.time()
-    ribo_track = load_data.RiboSeq(riboseq_tabix_prefix, args['read_lengths'])
+    ribo_track = load_data.RiboSeq(riboseq_counts_bed, args['read_lengths'])
     logger.debug('inflate_riboseq_track:{}'.format(time.time() - start))
     rnaseq_track = None
-    if rnaseq_tabix:
+    if rnaseq_counts_bed:
         print('Inflating RNAseq model')
         start = time.time()
-        rnaseq_track = load_data.RnaSeq(rnaseq_tabix)
+        rnaseq_track = load_data.RnaSeq(rnaseq_counts_bed)
         logger.debug('inflate_rnaseq_track:{}'.format(time.time() - start))
 
     if learn:
@@ -274,12 +318,13 @@ def execute_ribohmm(args, learn=True, infer=True):
         )
 
         print('\n######\nWriting out learned model parameters\n######')
+        os.makedirs(args['output_directory'], exist_ok=True)
         with open(os.path.join(args['output_directory'], 'model_parameters.json'), 'w') as model_file_out:
             model_file_out.write(json.dumps(serialized_model, indent=2) + '\n')
 
     if infer:
         print('\n######\nInferring coding sequences\n######')
-        model_file = args.get('model_parameters', os.path.join(args['output_directory'], 'model_parameters.json'))
+        model_file = args.get('model_parameters') or os.path.join(args['output_directory'], 'model_parameters.json')
         infer_CDS(
             model_file=model_file,
             transcript_models=gtf_model,
@@ -291,21 +336,21 @@ def execute_ribohmm(args, learn=True, infer=True):
         )
 
     if args['purge_tabix']:
-        for ribo_tbx in riboseq_tabix_prefix:
+        if riboseq_counts_bed:
             try:
-                os.remove(ribo_tbx)
+                os.remove(riboseq_counts_bed)
             except:
-                print('Could not remove {}'.format(ribo_tbx))
+                print('Could not remove {}'.format(riboseq_counts_bed))
             try:
-                os.remove(ribo_tbx + '.tbi')
+                os.remove(riboseq_counts_bed + '.tbi')
             except:
-                print('Could not remove {}'.format(ribo_tbx + '.tbi'))
-        if rnaseq_tabix:
+                print('Could not remove {}'.format(riboseq_counts_bed + '.tbi'))
+        if rnaseq_counts_bed:
             try:
-                os.remove(rnaseq_tabix)
+                os.remove(rnaseq_counts_bed)
             except:
-                print('Could not remove {}'.format(rnaseq_tabix))
+                print('Could not remove {}'.format(rnaseq_counts_bed))
             try:
-                os.remove(rnaseq_tabix + '.tbi')
+                os.remove(rnaseq_counts_bed + '.tbi')
             except:
-                print('Could not remove {}'.format(rnaseq_tabix + '.tbi'))
+                print('Could not remove {}'.format(rnaseq_counts_bed + '.tbi'))

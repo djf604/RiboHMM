@@ -3,7 +3,7 @@ import pandas as pd
 import pysam
 from functools import reduce
 
-# import ribohmm.utils as utils
+import ribohmm.utils as utils
 
 MIN_MAP_QUAL = 10
 
@@ -337,7 +337,7 @@ def load_gtf(filename, use_cache=True):
     transcripts = dict()
     handle = open(filename, "r")
 
-    print('Reading in file')
+    print('Reading in GTF file')
     for line in handle:
         # remove comments
         if line.startswith('#'):
@@ -416,9 +416,11 @@ def load_gtf(filename, use_cache=True):
     handle.close()
 
     # generate transcript models
-    print('Generating transcript models')
+    print('Generating transcript models ({})'.format(len(transcripts)))
     no_exons = list()
-    for transcript_id, transcript in transcripts.items():
+    for i, (transcript_id, transcript) in enumerate(transcripts.items(), start=1):
+        if i % 1000 == 0:
+            print('Processed {}/{}'.format(i, len(transcripts)))
         try:
             transcript.generate_transcript_model()
         except ValueError:

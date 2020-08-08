@@ -110,6 +110,8 @@ def convert_bams_to_bed(bam_files, bgzip_path=None, tabix_path=None, read_length
     subprocess.call([bgzip_path, '-f', output_bed_path])
     subprocess.call([tabix_path, '-f', '-b', '2', '-e', '3', '-0', '{}.gz'.format(output_bed_path)])
 
+    return output_bed_path
+
     # # Output to read-length BED files
     # output_beds = {
     #     read_length: open(output_prefix + '.rl{}.counts.bed'.format(read_length), 'w')

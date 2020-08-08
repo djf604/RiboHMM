@@ -67,6 +67,7 @@ def main(args=None):
         populate_parser(parser)
         args = vars(parser.parse_args())
 
+    print('Starting mappability generate')
     if not args['output_fastq']:
         args['output_fastq'] = '{}_mappability.fq.gz'.format(
             datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
