@@ -2,6 +2,7 @@ import os
 import numpy as np
 import re
 from functools import reduce
+import time
 
 # READ_LENGTHS = [28, 29, 30, 31]
 STARTCODONS = ['AUG','CUG','GUG','UUG','AAG','ACG','AGG','AUA','AUC','AUU']
@@ -145,3 +146,21 @@ def which(program):
             return exe_file
 
     return None
+
+class Timer:
+    def __init__(self, start_on_init=True):
+        self._start_time = None
+        if start_on_init:
+            self._start_time = time.time()
+
+    def start(self):
+        if self._start_time is None:
+            self._start_time = time.time()
+        return self
+
+    def restart(self):
+        self._start_time = time.time()
+        return self
+
+    def elapsed(self):
+        return time.time() - self._start_time

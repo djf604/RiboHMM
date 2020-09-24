@@ -11,9 +11,9 @@ from ribohmm.utils import make_complement
 def populate_parser(parser):
     parser.add_argument('--gtf-file', help='Path to GTF file containing transcript models')
     parser.add_argument('--fasta-reference', help='FASTA file containing reference genome sequence')
-    parser.add_argument('--footprint-length', type=int, default=29,
-                        help='Length of ribosome footprint (default: 29)')
-    parser.add_argument('--output-fastq', help='Prefix of output fastq file')
+    parser.add_argument('--footprint-lengths', type=int, nargs='*',
+                        help='Length of ribosome footprint (default: 28 29 30 31)')
+    parser.add_argument('--output-fastq-stub', help='Prefix of output fastq file')
 
 
 def write_fasta(fastq_handle, sequence, transcript, footprint_length, exon_mask=None, strand=None):
@@ -67,40 +67,100 @@ def main(args=None):
         populate_parser(parser)
         args = vars(parser.parse_args())
 
-    print('Starting mappability generate')
-    if not args['output_fastq']:
-        args['output_fastq'] = '{}_mappability.fq.gz'.format(
-            datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    footprint_lengths = args['footprint_lengths'] or [28, 29, 30, 31]
+
+
+    print('Loading FASTA')
+    seq_handle = pysam.FastaFile(args['fasta_reference'])
+    # load transcripts
+    print('Loading transcripts')
+    transcripts = load_gtf(args['gtf_file'])
+    print('Loaded {} transcripts'.format(len(transcripts)))
+    for footprint_length in footprint_lengths:
+        print('Starting mappability generate for footprint length {}'.format(footprint_length))
+
+        output_fastq_stub = '{stub}_footprint{footprint_length}'.format(
+            stub=datetime.datetime.now().strftime('%Y%m%d_%H%M%S') if not args['output_fastq_stub'] else args['output_fastq_stub'],
+            footprint_length=footprint_length
         )
 
-    # qual = ''.join(['~' for r in range(args['footprint_length'])])
-    # qual = '~' * args['footprint_length']
-    seq_handle = pysam.FastaFile(args['fasta_reference'])
+        # if not args['output_fastq_stub']:
+        #     output_fastq_stub = '{}_mappability_length{}'.format(
+        #         datetime.datetime.now().strftime('%Y%m%d_%H%M%S'),
+        #         footprint_length
+        #     )
+        # else:
+        #     output_fastq_stub = args['output_fastq_stub'] + '_{}'.format(footprint_length)
 
-    # load transcripts
-    transcripts = load_gtf(args['gtf_file'])
+        fastq_handle = gzip.open(output_fastq_stub + '.fq.gz', 'wb')
+        for num, tname in enumerate(transcripts.keys(), start=1):
+            if num % 100 == 0:
+                print('Written {} transcripts'.format(num))
+            transcript = transcripts[tname]
 
-    fastq_handle = gzip.open(args['output_fastq'], 'wb')
-    for num, tname in enumerate(transcripts.keys()):
-        transcript = transcripts[tname]
+            # get transcript DNA sequence
+            sequence = seq_handle.fetch(transcript.chromosome, transcript.start, transcript.stop).upper()
 
-        # get transcript DNA sequence
-        sequence = seq_handle.fetch(transcript.chromosome, transcript.start, transcript.stop).upper()
+            if transcript.strand == '.':
+                write_fasta(fastq_handle, sequence, transcript,
+                    footprint_length=footprint_length,
+                    exon_mask=transcript.mask.copy(),
+                    strand='+'
+                )
+                write_fasta(fastq_handle, make_complement(sequence), transcript,
+                    footprint_length=footprint_length,
+                    exon_mask=transcript.mask[::-1],
+                    strand='-'
+                )
+            else:
+                write_fasta(fastq_handle, sequence, transcript, footprint_length=footprint_length)
+        fastq_handle.close()
+    seq_handle.close()
 
-        if transcript.strand == '.':
-            write_fasta(fastq_handle, sequence, transcript,
-                footprint_length=args['footprint_length'],
-                exon_mask=transcript.mask.copy(),
-                strand='+'
-            )
-            write_fasta(fastq_handle, make_complement(sequence), transcript,
-                footprint_length=args['footprint_length'],
-                exon_mask=transcript.mask[::-1],
-                strand='-'
-            )
-        else:
-            write_fasta(fastq_handle, sequence, transcript, footprint_length=args['footprint_length'])
 
+    # OLD
+
+
+
+    # print('Starting mappability generate')
+    # if not args['output_fastq']:
+    #     args['output_fastq'] = '{}_mappability.fq.gz'.format(
+    #         datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    #     )
+    #
+    # # qual = ''.join(['~' for r in range(args['footprint_length'])])
+    # # qual = '~' * args['footprint_length']
+    # seq_handle = pysam.FastaFile(args['fasta_reference'])
+    #
+    # # load transcripts
+    # transcripts = load_gtf(args['gtf_file'])
+    #
+    # fastq_handle = gzip.open(args['output_fastq'], 'wb')
+    # for num, tname in enumerate(transcripts.keys()):
+    #     transcript = transcripts[tname]
+    #
+    #     # get transcript DNA sequence
+    #     sequence = seq_handle.fetch(transcript.chromosome, transcript.start, transcript.stop).upper()
+    #
+    #     if transcript.strand == '.':
+    #         write_fasta(fastq_handle, sequence, transcript,
+    #             footprint_length=args['footprint_length'],
+    #             exon_mask=transcript.mask.copy(),
+    #             strand='+'
+    #         )
+    #         write_fasta(fastq_handle, make_complement(sequence), transcript,
+    #             footprint_length=args['footprint_length'],
+    #             exon_mask=transcript.mask[::-1],
+    #             strand='-'
+    #         )
+    #     else:
+    #         write_fasta(fastq_handle, sequence, transcript, footprint_length=args['footprint_length'])
+
+
+
+
+
+        # End old
         # get forward strand reads
         #
         #
@@ -151,5 +211,4 @@ def main(args=None):
         #                                                         position, transcript.strand, read, qual) \
         #                             for position, read in zip(positions, reads)]).encode())
 
-    seq_handle.close()
-    fastq_handle.close()
+

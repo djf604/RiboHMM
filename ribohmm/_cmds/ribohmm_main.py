@@ -70,7 +70,7 @@ def populate_parser(parser: argparse.ArgumentParser):
 
     # Peripheral input data paths
     common_group.add_argument('--mappability-tabix-prefix', help='Path to mappability tabix output by '
-                                                           '\'ribohmm mappability-calculate\'')
+                                                           '\'ribohmm mappability-compute\'')
 
     # Control parameters
     common_group.add_argument('--log-output', help='Path to file to store statistics of the EM algorithm; not output '

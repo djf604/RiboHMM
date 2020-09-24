@@ -1,3 +1,4 @@
+import os
 import argparse
 import pdb
 import pysam
@@ -8,7 +9,7 @@ from ribohmm.utils import which
 
 
 def populate_parser(parser):
-    parser.add_argument('--mappability-bam', help='Path to alignment BAM for fastq generated with '
+    parser.add_argument('--mappability-bam', help='Path to aligned BAM for fastq generated with '
                                                   '\'ribohmm mappability-generate\'')
     parser.add_argument('--output-tabix', help='Path to output for mappability tabix file')
     parser.add_argument('--bgzip-path', help='Path to bgzip executable, if not in $PATH')
@@ -34,7 +35,17 @@ def main(args=None):
     # file names and handles
     map_file = args['output_tabix']
     map_handle = open(map_file, 'w')
+
+    # Check for index alongside BAM file, if not then create
+    if not os.path.isfile(args['mappability_bam'] + '.bai'):
+        print('BAM index does not exist, creating')
+        pysam.index(args['mappability_bam'])
     sam_handle = pysam.AlignmentFile(args['mappability_bam'], 'rb')
+
+    # Check for index alongside BAM file, if not then create
+    # if not os.path.isfile(args['mappability_bam'] + '.bai'):
+    #     print('BAM index does not exist, creating')
+    #     pysam.index(args['mappability_bam'])
 
     for cname, clen in zip(sam_handle.references, sam_handle.lengths):
 

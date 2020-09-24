@@ -130,9 +130,9 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
     if mappability_tabix_prefix is not None:
         rna_mappability = genome_track.get_mappability(transcripts)
     else:
-        rna_mappability = [np.ones(c.shape,dtype='bool') for c in footprint_counts]
+        rna_mappability = [np.ones(c.shape, dtype='bool') for c in footprint_counts]
     # genome_track.close()
-    for i,read_len in enumerate(read_lengths):
+    for i, read_len in enumerate(read_lengths):
         print('{} bases have missing counts for {} bp footprints'.format(
             np.sum([
                 m.shape[0] - np.sum(m[:, i])
