@@ -77,14 +77,15 @@ class RnaSequence(object):
         # cdef np.ndarray start_index
 
         offset = 3
-        M = int(self.S / 3) - 1
+        M = int(self.S / 3) - 1  # self.S is length of self.sequence
         start_index = np.zeros((M, 3), dtype=np.uint8)
-        for f in range(3):  # TODO Python 2/3 compatibility
+        for f in range(3):  # For each open reading frame # TODO Python 2/3 compatibility
             for s in range(f, 3 * M + f, 3):  # TODO Python 2/3
                 try:
                     start_index[int(s/3), f] = STARTS[self.sequence[s + offset:s + offset + 3]]
                 except KeyError:
                     pass
+                # If a stop codon is 4 or less codons after this found start codon, set start codon back to 0
                 for k in [3, 6, 9, 12]:
                     try:
                         STOPS[self.sequence[s + offset + k:s + offset + 3 + k]]

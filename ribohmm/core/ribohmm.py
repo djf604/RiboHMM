@@ -13,6 +13,10 @@ import time, pdb
 from ribohmm import utils
 from numba import njit, jit
 
+from pprint import pformat
+import logging
+logger = logging.getLogger('viterbi_log')
+
 solvers.options['maxiters'] = 300
 solvers.options['show_progress'] = False
 # logistic = lambda x: 1./(1+np.exp(x))
@@ -76,6 +80,29 @@ class Data:
         scaling factor, and the DNA sequence of each triplet in the 
         transcript in each frame and the missingness-type for each 
         triplet in the transcript in each frame.
+
+        footprint_counts (obs)
+        ======================
+        List of size num_transcripts, where each element is an array of shape (len_transcript, num_footprint_lengths)
+        This is the riboseq pileup at each position of a transcript. This is a list of transcripts, where each
+        transcript is represented by an array of integers. The outer element is the position in the transcript, and the
+        inner element is for each footprint length.
+
+        codon_id
+        ========
+        A dictionary with three keys: kozak, start, and stop. The values for each of those keys is an array of size
+        (num_codons, 3), where the 3 is for each possible reading frame.
+
+        The start array maps to the list of start codons in utils.STARTCODONS, and the stop array does the same.
+
+        rna_counts (scale)
+        ==================
+        A scaling factor based on observed RNAseq counts
+
+        obs: footprint counts
+        codon_id: codon flags
+        scale: rna_counts
+        mappable: rna_mappability
 
         """
 
@@ -1746,6 +1773,10 @@ def infer_coding_sequence(observations, codon_id, scales, mappability, transitio
     """
     Inflate serialized transition and emission dictionaries
     """
+    logger.info('Footprint counts: {}'.format(pformat(observations)))
+    logger.info('Codon flags: {}'.format(pformat(codon_id)))
+    logger.info('RNA counts: {}'.format(pformat(scales)))
+    logger.info('Mappability: {}'.format(pformat(mappability)))
     transition = {
         'seqparam': {
             'kozak': np.array(transition['seqparam']['kozak']),
@@ -1753,6 +1784,7 @@ def infer_coding_sequence(observations, codon_id, scales, mappability, transitio
             'stop': np.array(transition['seqparam']['stop'])
         }
     }
+    logger.info('Transition parameters: {}'.format(pformat(transition)))
 
     emission = {
         'S': emission['S'],
@@ -1761,19 +1793,31 @@ def infer_coding_sequence(observations, codon_id, scales, mappability, transitio
         'rate_alpha': np.array(emission['rate_alpha']['data']).reshape(emission['rate_alpha']['shape']),
         'rate_beta': np.array(emission['rate_beta']['data']).reshape(emission['rate_beta']['shape'])
     }
+    logger.info('Emission parameters: {}'.format(pformat(emission)))
 
     data = [
         Data(observation, id, scale, mappable)
         for observation,id,scale,mappable in zip(observations,codon_id,scales,mappability)
     ]
+    logger.info('There are {} Data items'.format(len(data)))
     states = [State(datum.M) for datum in data]
     frames = [Frame() for datum in data]
 
-    for state,frame,datum in zip(states, frames, data):
+    # for state,frame,datum in zip(states, frames, data):
+    for i, (state, frame, datum) in enumerate(zip(states, frames, data), start=1):
+        logger.info('==== Starting inference loop {}'.format(i))
         datum.compute_log_probability(emission)
+        logger.info('Log probability {}:\n{}'.format(datum.log_probability.shape, (datum.log_probability)))
+        logger.info('Extra Log probability {}:\n{}'.format(datum.extra_log_probability.shape, pformat(datum.extra_log_probability)))
         state._forward_update(datum, transition)
+        logger.info('State alpha {}:\n{}'.format(state.alpha.shape, pformat(state.alpha)))
+        logger.info('State likelihood {}:\n{}'.format(state.likelihood.shape, pformat(state.likelihood)))
         frame.update(datum, state)
+        logger.info('Frame posterior: {}'.format(pformat(frame.posterior)))
         state.decode(datum, transition, emission, frame)
+        logger.info('State max posterior:\n{}'.format(pformat(state.max_posterior)))
+        logger.info('State best start: {}'.format(pformat(state.best_start)))
+        logger.info('State best stop: {}'.format(pformat(state.best_stop)))
 
     return states, frames
 
