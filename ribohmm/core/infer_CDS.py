@@ -195,13 +195,13 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
         T = len(transcripts)
         if T>0:
             # load sequence of transcripts and transform sequence data
-            codon_flags = []
+            codon_maps = []
             logger.info('Loading RNA sequences')
             rna_sequences = genome_track.get_sequence(transcripts)
             logger.info('Setting codon flags')
             for rna_sequence in rna_sequences:
                 sequence = seq.RnaSequence(rna_sequence)
-                codon_flags.append(sequence.mark_codons())
+                codon_maps.append(sequence.mark_codons())
 
             # load footprint count data in transcripts
             logger.info('Getting riboseq footprint counts')
@@ -222,7 +222,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                 rna_mappability = [np.ones(c.shape,dtype='bool') for c in footprint_counts]
 
             logger.info('Running inference')
-            states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
+            states, frames = infer_coding_sequence(footprint_counts, codon_maps, \
                                                         rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
 
             logger.info('Writing out inferred CDS')
@@ -244,13 +244,13 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
         if T>0:
 
             # load sequence of transcripts and transform sequence data
-            codon_flags = []
+            codon_maps = []
             logger.info('Loading RNA sequences')
             rna_sequences = genome_track.get_sequence(transcripts)
             logger.info('Setting codon flags')
             for rna_sequence in rna_sequences:
                 sequence = seq.RnaSequence(rna_sequence)
-                codon_flags.append(sequence.mark_codons())
+                codon_maps.append(sequence.mark_codons())
 
             # load footprint count data in transcripts
             logger.info('Getting riboseq footprint counts')
@@ -274,17 +274,17 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
             #                        rna_counts, rna_mappability, transition, emission)
             logger.info('Running inference')
-            import pickle
-            with open('data.pkl', 'wb') as out:
-                pickle.dump({
-                    'footprint_counts': footprint_counts,
-                    'codon_flags': codon_flags,
-                    'rna_counts': rna_counts,
-                    'rna_mappability': rna_mappability
-                }, out)
-            import sys
-            sys.exit()
-            states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
+            # import pickle
+            # with open('data.pkl', 'wb') as out:
+            #     pickle.dump({
+            #         'footprint_counts': footprint_counts,
+            #         'codon_flags': codon_flags,
+            #         'rna_counts': rna_counts,
+            #         'rna_mappability': rna_mappability
+            #     }, out)
+            # import sys
+            # sys.exit()
+            states, frames = infer_coding_sequence(footprint_counts, codon_maps, \
                                                         rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
 
             logger.info('Writing out inferred CDS')

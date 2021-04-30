@@ -5,8 +5,11 @@ from functools import reduce
 import time
 
 # READ_LENGTHS = [28, 29, 30, 31]
-STARTCODONS = ['AUG','CUG','GUG','UUG','AAG','ACG','AGG','AUA','AUC','AUU']
-STOPCODONS = ['UAA','UAG','UGA']
+STARTCODONS = [
+    'AUG', 'CUG', 'GUG', 'UUG', 'AAG',
+    'ACG', 'AGG', 'AUA', 'AUC', 'AUU'
+]
+STOPCODONS = ['UAA', 'UAG', 'UGA']
 
 binarize = dict([(0,np.array([False,False,False])),
                  (1,np.array([False,False,True])),
@@ -18,8 +21,9 @@ binarize = dict([(0,np.array([False,False,False])),
                  (7,np.array([True,True,True]))
                 ])
 
+
 # debinarize = dict([(val.tostring(),key) for key,val in binarize.iteritems()])
-debinarize = dict([(val.tostring(),key) for key,val in binarize.items()])
+debinarize = dict([(val.tostring(), key) for key, val in binarize.items()])
 
 # some essential functions
 insum = lambda x,axes: np.apply_over_axes(np.sum,x,axes)

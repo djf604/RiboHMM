@@ -74,30 +74,38 @@ class Data:
 
     # def __cinit__(self, np.ndarray[np.uint64_t, ndim=2] obs, dict codon_id, \
     #               double scale, np.ndarray[np.uint8_t, ndim=2, cast=True] mappable):
-    def __init__(self, obs, codon_id, scale, mappable):
+    def __init__(self, riboseq_pileup, codon_map, transcript_normalization_factor, is_pos_mappable):
         """Instantiates a data object for a transcript and populates it 
         with observed ribosome-profiling data, expression RPKM as its
         scaling factor, and the DNA sequence of each triplet in the 
         transcript in each frame and the missingness-type for each 
         triplet in the transcript in each frame.
 
-        footprint_counts (obs)
+        footprint_counts (riboseq_pileup, formerly obs)
         ======================
         List of size num_transcripts, where each element is an array of shape (len_transcript, num_footprint_lengths)
         This is the riboseq pileup at each position of a transcript. This is a list of transcripts, where each
         transcript is represented by an array of integers. The outer element is the position in the transcript, and the
         inner element is for each footprint length.
 
-        codon_id
+        codon_map
         ========
         A dictionary with three keys: kozak, start, and stop. The values for each of those keys is an array of size
         (num_codons, 3), where the 3 is for each possible reading frame.
 
         The start array maps to the list of start codons in utils.STARTCODONS, and the stop array does the same.
+        ex:
+        [
+          [0 1 0],
+          [0 0 0],
+          [3 0 0]
+        ]
+        means that there is an AUG codon in the first triplet of the second open reading frame, and an GUG codon in the
+        third triplet of the first open reading frame
 
         rna_counts (scale)
         ==================
-        A scaling factor based on observed RNAseq counts
+        A scaling factor based on observed RNAseq counts. Is a scalar value that is transcript specific.
 
         obs: footprint counts
         codon_id: codon flags
@@ -110,37 +118,50 @@ class Data:
         # cdef np.ndarray ma, mapp
 
         # length of transcript
-        self.L = obs.shape[0]
+        self.transcript_length = riboseq_pileup.shape[0]
         # length of HMM
-        self.M = int(self.L/3) - 1
+        self.n_triplets = int(self.transcript_length / 3) - 1
         # number of distinct footprint lengths
-        self.R = obs.shape[1]
+        self.n_footprint_lengths = riboseq_pileup.shape[1]
         # observed ribosome-profiling data
-        self.obs = obs
+        self.riboseq_pileup = riboseq_pileup
         # transcript expression RPKM as scaling factor
-        self.scale = scale
-        # mappability of each position for each footprint length
-        self.mappable = mappable
+        self.transcript_normalization_factor = transcript_normalization_factor
+        # mappability of each position for each footprint length, values are boolean
+        self.is_pos_mappable = is_pos_mappable
         # ensure that all unmappable positions have a zero footprint count
-        self.obs[~self.mappable] = 0
+        self.riboseq_pileup[~self.is_pos_mappable] = 0
         # codon type of each triplet in each frame
-        self.codon_id = codon_id
+        self.codon_map = codon_map
         # missingness-type of each triplet in each frame for each footprint length
-        self.missingness_type = np.zeros((self.R,3,self.M), dtype=np.uint8)
+        self.missingness_type = np.zeros((self.n_footprint_lengths, 3, self.n_triplets), dtype=np.uint8)
         # total footprint count for each triplet in each frame for each footprint length
-        self.total = np.empty((3,self.M,self.R), dtype=np.uint64)
-        # for f from 0 <= f < 3:
-        for f in range(3):
-            # for r from 0 <= r < self.R:
-            for r in range(self.R):
-                mapp = self.mappable[f:3*self.M+f,r].reshape(self.M,3)
+        self.total_pileup = np.empty((3, self.n_triplets, self.n_footprint_lengths), dtype=np.uint64)
+
+        # Compute missingness type and total footprint count in each triplet
+        for frame_i in range(3):
+            for footprint_length_i in range(self.n_footprint_lengths):
+                # Get mappability information and reshapes into a 2-dim array, where the number of rows is equal to
+                # the number of triplets and the columns are for each frame index
+                frame_sequence_positions = slice(frame_i, 3 * self.n_triplets + frame_i)
+                per_triplet_mappability = (
+                    self.is_pos_mappable[frame_sequence_positions, footprint_length_i]
+                    .reshape(self.n_triplets, 3)
+                )
                 # missingness pattern of a triplet can belong to one of 8 types,
                 # depending on which of the 3 positions are unmappable
-                self.missingness_type[r,f,:] = np.array([
-                    utils.debinarize[ma.tostring()]
-                    for ma in mapp
+                # Each triplet will be represented by an integer that corresponds to a value in utils.binarize
+                # Each value ma in each iteration represents one triplet (so will be length 3)
+                self.missingness_type[footprint_length_i, frame_i, :] = np.array([
+                    utils.debinarize[triplet_mappability.tostring()]
+                    for triplet_mappability in per_triplet_mappability
                 ]).astype(np.uint8)
-                self.total[f,:,r] = np.sum(self.obs[f:3*self.M+f,r].reshape(self.M,3),1)
+
+                # Gets the total pileup count from the riboseq data for each triplet in this frame
+                self.total_pileup[frame_i, :, footprint_length_i] = (
+                    np.sum(self.riboseq_pileup[frame_sequence_positions, footprint_length_i]
+                           .reshape(self.n_triplets, 3), axis=1)
+                )
 
     # @cython.boundscheck(False)
     # @cython.wraparound(False)
@@ -158,87 +179,124 @@ class Data:
                           emission model parameters
 
         """
+        # Create array to store log probability
+        # It is 3-dimensional:
+        #  - 1st dim is frame index, of size 3
+        #  - 2nd dim is triplet index, of size n_triplets
+        #  - 3rd dim is state index, of size emission.S, which is 9
+        # In this case, log probability is the log of the likelihood that TODO
+        self.log_probability = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
 
-        # cdef long r, f, m, l
-        # cdef np.ndarray total, mask, misstypes, dat, mapA, mapB, mapAB
-        # cdef np.ndarray[np.float64_t, ndim=1] alpha, beta
-        # cdef np.ndarray[np.float64_t, ndim=2] rescale, log_probability, rate_log_probability
-
-        self.log_probability = np.zeros((3, self.M, emission['S']), dtype=np.float64)
+        # Same as above TODO
         self.extra_log_probability = np.zeros((3,), dtype=np.float64)
+
         # missingness-types where 1 out of 3 positions are unmappable
-        misstypes = np.array([3,5,6,7]).reshape(4,1)
+        # This is based utils.binarize, the below indexes all have 1 position unmappable
+        # Except that isn't true? That's what the comment from the original code says, but as far as I can
+        # tell, this maps to the following, where False means unmappable:
+        #  - [False, True,  True]
+        #  - [True,  False, True]
+        #  - [True,  True,  False]
+        #  - [True,  True,  True]
+        # Why is 7 included in this?
+        one_base_unmappable = np.array([3, 5, 6, 7]).reshape(4, 1)
 
         # loop over possible frames
-        # for f from 0 <= f < 3:
-        for f in range(3):
-
+        for frame_i in range(3):
             # loop over footprint lengths
-            # for r from 0 <= r < self.R:
-            for r in range(self.R):
+            for footprint_length_i in range(self.n_footprint_lengths):
+                # The local log probability for this frame index and footprint length index
+                log_probability = np.zeros((self.n_triplets, emission['S']), dtype=np.float64)
 
-                log_probability = np.zeros((self.M, emission['S']), dtype=np.float64)
-                dat = self.obs[f:3 * self.M + f, r].reshape(self.M, 3)
+                # Riboseq pileup for all the triplets in this frame index, then reshaped to where each row is a
+                # triplet with three values
+                frame_positions = slice(frame_i, 3 * self.n_triplets + frame_i)
+                frame_pileups = self.riboseq_pileup[frame_positions, footprint_length_i].reshape(self.n_triplets, 3)
 
                 # probability under periodicity model, accounting for mappability
                 # triplets with at most 1 unmappable position
-                mapAB = np.any(self.missingness_type[r, f, :] == misstypes, 0)
-                log_probability[mapAB, :] = (
-                    gammaln(self.total[f, mapAB, r] + 1) -
-                    np.sum(gammaln(dat[mapAB, :] + 1), 1)
-                ).reshape(mapAB.sum(), 1) + np.dot(dat[mapAB, :], emission['logperiodicity'][r].T)
+                # For each triplet in the transcript, for this footprint length and frame index, determine which
+                # triplets match one of the missingness types that have one unmappable position
+                triplet_one_base_unmappable = np.any(
+                    self.missingness_type[footprint_length_i, frame_i, :] == one_base_unmappable,
+                    axis=0
+                )
 
-                for mtype in misstypes[:3, 0]:
-                    mapAB = self.missingness_type[r, f, :] == mtype
+                # Calculate the log probability of those triplets which have one unmappable position, for each
+                # possible state
+                log_probability[triplet_one_base_unmappable, :] = (
+                    (
+                        # Give total riboseq pileup for each triplet, for this footprint length and frame index, to
+                        # the natural log of the gamma function (https://www.desmos.com/calculator/q4evkl4ekm)
+                        gammaln(self.total_pileup[frame_i, triplet_one_base_unmappable, footprint_length_i] + 1)
+                        # Base pileups for each triplet in this frame index, given to the natural log of the
+                        # gamma function
+                        - np.sum(gammaln(frame_pileups[triplet_one_base_unmappable, :] + 1), axis=1)
+                        # Reshape to put each value in its own row, with 1 column
+                    ).reshape(triplet_one_base_unmappable.sum(), 1)
+                    # Inner product of the base pileup for each triplet in this frame index and the emission
+                    # log periodicity for this footprint length
+                    + np.dot(
+                        frame_pileups[triplet_one_base_unmappable, :],
+                        emission['logperiodicity'][footprint_length_i].T
+                    )
+                )
+
+                # Iterate through each missingness type that has one unmappable position
+                # Subtract some log probability from each triplet which has one unmappable position
+                for mtype in one_base_unmappable[:3, 0]:
+                    mapAB = self.missingness_type[footprint_length_i, frame_i, :] == mtype
                     log_probability[mapAB, :] -= np.dot(
-                        self.total[f, mapAB, r:r + 1],
-                        utils.nplog(emission['rescale'][r:r + 1, :, mtype])
+                        self.total_pileup[frame_i, mapAB, footprint_length_i:footprint_length_i + 1],
+                        utils.nplog(emission['rescale'][footprint_length_i:footprint_length_i + 1, :, mtype])
                     )
 
                 # probability under occupancy model, accounting for mappability
-                alpha = emission['rate_alpha'][r]
-                beta = emission['rate_beta'][r]
-                rescale = emission['rescale'][r, :, self.missingness_type[r, f, :]]
-                total = self.total[f, :, r:r + 1]
+                alpha = emission['rate_alpha'][footprint_length_i]
+                beta = emission['rate_beta'][footprint_length_i]
+                rescale = emission['rescale'][footprint_length_i, :, self.missingness_type[footprint_length_i, frame_i, :]]
+                total = self.total_pileup[frame_i, :, footprint_length_i:footprint_length_i + 1]
                 rate_log_probability = (
                     alpha * beta * utils.nplog(beta) +
                     gammaln(alpha*beta + total) -
                     gammaln(alpha*beta) -
                     gammaln(total + 1) +
-                    total * utils.nplog(self.scale * rescale) -
-                    (alpha * beta + total) * utils.nplog(beta + self.scale * rescale)
+                    total * utils.nplog(self.transcript_normalization_factor * rescale) -
+                    (alpha * beta + total) * utils.nplog(beta + self.transcript_normalization_factor * rescale)
                 )
 
                 # ensure that triplets with all positions unmappable
                 # do not contribute to the data probability
-                mask = self.missingness_type[r, f, :] == 0
+                mask = self.missingness_type[footprint_length_i, frame_i, :] == 0
                 rate_log_probability[mask, :] = 0
-                self.log_probability[f] += log_probability + rate_log_probability
+                self.log_probability[frame_i] += log_probability + rate_log_probability
 
                 # likelihood of extra positions in transcript
                 # for l from 0 <= l < f:
-                for l in range(f):
-                    if self.mappable[l, r]:
-                        self.extra_log_probability[f] += (
+                # Compute likelihood for bases before the core sequence of triplets
+                for l in range(frame_i):
+                    if self.is_pos_mappable[l, footprint_length_i]:
+                        self.extra_log_probability[frame_i] += (
                             alpha[0] * beta[0] * utils.nplog(beta[0]) -
-                            (alpha[0] * beta[0] + self.obs[l, r]) *
-                            utils.nplog(beta[0] + self.scale / 3.) +
-                            gammaln(alpha[0] * beta[0]+self.obs[l, r]) -
+                            (alpha[0] * beta[0] + self.riboseq_pileup[l, footprint_length_i]) *
+                            utils.nplog(beta[0] + self.transcript_normalization_factor / 3.) +
+                            gammaln(alpha[0] * beta[0]+self.riboseq_pileup[l, footprint_length_i]) -
                             gammaln(alpha[0] * beta[0]) +
-                            self.obs[l, r] * utils.nplog(self.scale / 3.) -
-                            gammaln(self.obs[l, r] + 1)
+                            self.riboseq_pileup[l, footprint_length_i] * utils.nplog(self.transcript_normalization_factor / 3.) -
+                            gammaln(self.riboseq_pileup[l, footprint_length_i] + 1)
                         )
-                # for l from 3*self.M+f <= l < self.L:
-                for l in range(3 * self.M + f, self.L):
-                    if self.mappable[l,r]:
-                        self.extra_log_probability[f] += (
+
+                # Compute likelihood for bases after the core sequence of triplets
+                for l in range(3 * self.n_triplets + frame_i, self.transcript_length):
+                    if self.is_pos_mappable[l, footprint_length_i]:
+                        self.extra_log_probability[frame_i] += (
                             alpha[8] * beta[8] * utils.nplog(beta[8]) -
-                            (alpha[8] * beta[8] + self.obs[l, r]) *
-                            utils.nplog(beta[8] + self.scale / 3.) +
-                            gammaln(alpha[8] * beta[8] + self.obs[l, r]) -
+                            (alpha[8] * beta[8] + self.riboseq_pileup[l, footprint_length_i]) *
+                            utils.nplog(beta[8] + self.transcript_normalization_factor / 3.) +
+                            gammaln(alpha[8] * beta[8] + self.riboseq_pileup[l, footprint_length_i]) -
                             gammaln(alpha[8] * beta[8]) +
-                            self.obs[l, r] * utils.nplog(self.scale / 3.) -
-                            gammaln(self.obs[l, r] + 1)
+                            self.riboseq_pileup[l, footprint_length_i] * utils.nplog(self.transcript_normalization_factor / 3.) -
+                            gammaln(self.riboseq_pileup[l, footprint_length_i] + 1)
                         )
 
         # check for infs or nans in log likelihood
@@ -292,12 +350,12 @@ def rebuild_Frame(pos):
 
 class State(object):
     
-    def __init__(self, M):
+    def __init__(self, n_triplets):
 
         # number of triplets
-        self.M = M
+        self.n_triplets = n_triplets
         # number of states for the HMM
-        self.S = 9
+        self.n_states = 9
         # stores the (start,stop) and posterior for the MAP state for each frame
         self.best_start = []
         self.best_stop = []
@@ -324,14 +382,14 @@ class State(object):
 
         logprior = nplog([1, 0, 0, 0, 0, 0, 0, 0, 0])
         swapidx = np.array([2, 3, 6, 7]).astype(np.uint8)
-        self.alpha = np.zeros((3, self.M, self.S), dtype=np.float64)
-        self.likelihood = np.zeros((self.M, 3), dtype=np.float64)
+        self.alpha = np.zeros((3, self.n_triplets, self.n_states), dtype=np.float64)
+        self.likelihood = np.zeros((self.n_triplets, 3), dtype=np.float64)
 
         P = logistic(
-            -1 * (transition['seqparam']['kozak'] * data.codon_id['kozak'] +
-                  transition['seqparam']['start'][data.codon_id['start']])
+            -1 * (transition['seqparam']['kozak'] * data.codon_map['kozak'] +
+                  transition['seqparam']['start'][data.codon_map['start']])
         )
-        Q = logistic(-1 * transition['seqparam']['stop'][data.codon_id['stop']])
+        Q = logistic(-1 * transition['seqparam']['stop'][data.codon_map['stop']])
 
         # @njit
         # def _f(swapidx, newalpha, alpha, log_prob, f, m):
@@ -346,12 +404,12 @@ class State(object):
             newalpha = logprior + data.log_probability[f, 0, :]
             L = normalize(newalpha)
             # for s from 0 <= s < self.S:
-            for s in range(self.S):
+            for s in range(self.n_states):
                 self.alpha[f, 0, s] = newalpha[s] - L
             self.likelihood[0, f] = L
 
             # for m from 1 <= m < self.M:
-            for m in range(1, self.M):
+            for m in range(1, self.n_triplets):
 
                 # _f(swapidx=swapidx, newalpha=newalpha, alpha=self.alpha,
                 #    log_prob=data.log_probability, f=f, m=m)
@@ -401,7 +459,7 @@ class State(object):
 
                 L = normalize(newalpha)
                 # for s from 0 <= s < self.S:
-                for s in range(self.S):
+                for s in range(self.n_states):
                     self.alpha[f, m, s] = newalpha[s] - L
 
                 self.likelihood[m, f] = L
@@ -424,26 +482,25 @@ class State(object):
         # cdef np.ndarray[np.float64_t, ndim=2] P, Q
 
         swapidx = np.array([1, 2, 3, 5, 6, 7]).astype(np.uint8)
-        self.pos_first_moment = np.empty((3, self.M, self.S), dtype=np.float64)
-        self.pos_cross_moment_start = np.empty((3, self.M, 2), dtype=np.float64)
+        self.pos_first_moment = np.empty((3, self.n_triplets, self.n_states), dtype=np.float64)
+        self.pos_cross_moment_start = np.empty((3, self.n_triplets, 2), dtype=np.float64)
 
         P = logistic(
-            -1 * (transition.seqparam['kozak'] * data.codon_id['kozak'] +
-                  transition.seqparam['start'][data.codon_id['start']])
+            -1 * (transition.seqparam['kozak'] * data.codon_map['kozak'] +
+                  transition.seqparam['start'][data.codon_map['start']])
         )
-        Q = logistic(-1 * transition.seqparam['stop'][data.codon_id['stop']])
+        Q = logistic(-1 * transition.seqparam['stop'][data.codon_map['stop']])
 
         # for f from 0 <= f < 3:
         for f in range(3):
 
-            self.pos_first_moment[f, self.M - 1, :] = np.exp(self.alpha[f, self.M - 1, :])
-            newbeta = np.empty((self.S,), dtype=np.float64)
-            beta = np.zeros((self.S,), dtype=np.float64)
+            self.pos_first_moment[f, self.n_triplets - 1, :] = np.exp(self.alpha[f, self.n_triplets - 1, :])
+            newbeta = np.empty((self.n_states,), dtype=np.float64)
+            beta = np.zeros((self.n_states,), dtype=np.float64)
 
-            for m in range(self.M - 2, -1, -1):
+            for m in range(self.n_triplets - 2, -1, -1):
 
-                # for s from 0 <= s < self.S:
-                for s in range(self.S):
+                for s in range(self.n_states):
                     beta[s] = beta[s] + data.log_probability[f, m + 1, s]
 
                 try:
@@ -471,7 +528,7 @@ class State(object):
                 # states 1,2,3,5,6,7
                 for s in swapidx:
                     newbeta[s] = beta[s + 1]
-                newbeta[self.S - 1] = beta[self.S - 1]
+                newbeta[self.n_states - 1] = beta[self.n_states - 1]
 
                 # state 0
                 if p > pp:
@@ -486,7 +543,7 @@ class State(object):
                     newbeta[4] = log(1 + np.exp(qq - q)) + q
 
                 # for s from 0 <= s < self.S:
-                for s in range(self.S):
+                for s in range(self.n_states):
                     beta[s] = newbeta[s] - self.likelihood[m + 1, f]
                     self.pos_first_moment[f, m, s] = exp(self.alpha[f, m, s] + beta[s])
 
@@ -515,17 +572,17 @@ class State(object):
         # cdef np.ndarray[np.float64_t, ndim=1] alpha, logprior
         # cdef np.ndarray[np.float64_t, ndim=2] P, Q
 
-        P = logistic(-1*(transition['seqparam']['kozak'] * data.codon_id['kozak']
-            + transition['seqparam']['start'][data.codon_id['start']]))
-        Q = logistic(-1*transition['seqparam']['stop'][data.codon_id['stop']])
+        P = logistic(-1*(transition['seqparam']['kozak'] * data.codon_map['kozak']
+            + transition['seqparam']['start'][data.codon_map['start']]))
+        Q = logistic(-1*transition['seqparam']['stop'][data.codon_map['stop']])
 
         logprior = utils.nplog([1, 0, 0, 0, 0, 0, 0, 0, 0])
         swapidx = np.array([2,3,6,7]).astype(np.uint8)
-        pointer = np.zeros((self.M,self.S), dtype=np.uint8)
+        pointer = np.zeros((self.n_triplets,self.n_states), dtype=np.uint8)
         pointer[0,0] = np.array([0])
-        alpha = np.zeros((self.S,), dtype=np.float64)
-        newalpha = np.zeros((self.S,), dtype=np.float64)
-        state = np.zeros((self.M,), dtype=np.uint8)
+        alpha = np.zeros((self.n_states,), dtype=np.float64)
+        newalpha = np.zeros((self.n_states,), dtype=np.float64)
+        state = np.zeros((self.n_triplets,), dtype=np.uint8)
 
         # for f from 0 <= f < 3:
         for f in range(3):
@@ -533,8 +590,8 @@ class State(object):
             # find the state sequence with highest posterior
             alpha = logprior + data.log_probability[f,0,:]
 
-            # for m from 1 <= m < self.M:
-            for m in range(1, self.M):
+            # for m from 1 <= m < self.n_triplets:
+            for m in range(1, self.n_triplets):
 
                 # states 2,3,6,7
                 for s in swapidx:
@@ -587,13 +644,13 @@ class State(object):
                     newalpha[8] = q
                     pointer[m,8] = 8
 
-                # for s from 0 <= s < self.S:
-                for s in range(self.S):
+                # for s from 0 <= s < self.n_states:
+                for s in range(self.n_states):
                     alpha[s] = newalpha[s] + data.log_probability[f,m,s]
 
             # constructing the MAP state sequence
-            state[self.M-1] = np.argmax(alpha)
-            for m in range(self.M-2,0,-1):
+            state[self.n_triplets-1] = np.argmax(alpha)
+            for m in range(self.n_triplets-2,0,-1):
                 state[m] = pointer[m+1,state[m+1]]
             state[0] = pointer[0,0]
             self.max_posterior[f] = exp(np.max(alpha) - np.sum(self.likelihood[:,f]))
@@ -630,12 +687,12 @@ class State(object):
         joint_probability = data.log_probability[frame,0,state[0]]
 
         # for m from 1 <= m < self.M:
-        for m in range(self.M):
+        for m in range(self.n_triplets):
 
             if state[m-1]==0:
     
-                p = transition.seqparam['kozak'] * data.codon_id['kozak'][m,frame] \
-                    + transition.seqparam['start'][data.codon_id['start'][m,frame]]
+                p = transition.seqparam['kozak'] * data.codon_map['kozak'][m,frame] \
+                    + transition.seqparam['start'][data.codon_map['start'][m,frame]]
                 try:
                     joint_probability = joint_probability - log(1+exp(-p))
                     if state[m]==0:
@@ -675,7 +732,7 @@ class State(object):
         stop = int((stop-frame)/3)
 
         # construct state sequence given a start/stop pair
-        state = np.empty((self.M,), dtype=np.uint8)
+        state = np.empty((self.n_triplets,), dtype=np.uint8)
         state[:start-1] = 0
         state[start-1] = 1
         state[start] = 2
@@ -882,7 +939,7 @@ def transition_func_grad(x, data, states, frames, restrict):
         # for j from 0 <= j < 3:
         for j in range(3):
 
-            arg = x[0] * datum.codon_id['kozak'][1:, j] + xex[datum.codon_id['start'][1:, j]]
+            arg = x[0] * datum.codon_map['kozak'][1:, j] + xex[datum.codon_map['start'][1:, j]]
 
             # evaluate function
             func += frame.posterior[j] * np.sum(
@@ -897,10 +954,10 @@ def transition_func_grad(x, data, states, frames, restrict):
                 state.pos_cross_moment_start[j].sum(1)[1:] *
                 logistic(-arg)
             )
-            df[0] += frame.posterior[j] * np.sum(vec * datum.codon_id['kozak'][1:, j])
+            df[0] += frame.posterior[j] * np.sum(vec * datum.codon_map['kozak'][1:, j])
             # for v from 1 <= v < V:
             for v in range(1, V):
-                df[v] += frame.posterior[j] * np.sum(vec[datum.codon_id['start'][1:, j] == v])
+                df[v] += frame.posterior[j] * np.sum(vec[datum.codon_map['start'][1:, j] == v])
 
     return -func, -df
 
@@ -936,7 +993,7 @@ def transition_func_grad_hess(x, data, states, frames, restrict):
         # for j from 0 <= j < 3:
         for j in range(3):
 
-            arg = x[0] * datum.codon_id['kozak'][1:, j] + xex[datum.codon_id['start'][1:, j]]
+            arg = x[0] * datum.codon_map['kozak'][1:, j] + xex[datum.codon_map['start'][1:, j]]
 
             # evaluate function
             func += frame.posterior[j] * np.sum(
@@ -951,14 +1008,14 @@ def transition_func_grad_hess(x, data, states, frames, restrict):
                 state.pos_cross_moment_start[j].sum(1)[1:] * logistic(-arg)
             )
             vec2 = state.pos_cross_moment_start[j].sum(1)[1:] * logistic(arg) * logistic(-arg)
-            df[0] += frame.posterior[j] * np.sum(vec * datum.codon_id['kozak'][1:, j])
-            Hf[0,0] += frame.posterior[j] * np.sum(vec2 * datum.codon_id['kozak'][1:, j] ** 2)
+            df[0] += frame.posterior[j] * np.sum(vec * datum.codon_map['kozak'][1:, j])
+            Hf[0,0] += frame.posterior[j] * np.sum(vec2 * datum.codon_map['kozak'][1:, j] ** 2)
             # for v from 1 <= v < V:
             for v in range(1, V):
-                tmp = datum.codon_id['start'][1:, j] == v
+                tmp = datum.codon_map['start'][1:, j] == v
                 df[v] += frame.posterior[j] * np.sum(vec[tmp])
                 Hf[v,v] += frame.posterior[j] * np.sum(vec2[tmp])
-                Hf[0,v] += frame.posterior[j] * np.sum(vec2[tmp] * datum.codon_id['kozak'][1:, j][tmp])
+                Hf[0,v] += frame.posterior[j] * np.sum(vec2[tmp] * datum.codon_map['kozak'][1:, j][tmp])
 
     Hf[:, 0] = Hf[0, :]
     return -func, -df, Hf
@@ -1033,7 +1090,7 @@ class Emission(object):
         # cdef Frame frame
 
         T = len(data)
-        Et = np.array([d.scale for d in data]).reshape(T, 1)
+        Et = np.array([d.transcript_normalization_factor for d in data]).reshape(T, 1)
         index = np.array([[4, 5, 6, 7],[2, 3, 6, 7],[1, 3, 5, 7]]).T
 
         # for r from 0 <= r < self.R:
@@ -1058,7 +1115,7 @@ class Emission(object):
                 for t, (datum, state, frame) in enumerate(zip(data, states, frames)):
                     argA = np.array([
                         frame.posterior[f] * state.pos_first_moment[f,:,s] *
-                        (datum.total[f, :, r] + self.rate_alpha[r, s] * self.rate_beta[r,s])
+                        (datum.total_pileup[f, :, r] + self.rate_alpha[r, s] * self.rate_beta[r,s])
                         for f in range(3)
                     ])
  
@@ -1137,9 +1194,9 @@ class Emission(object):
                                  np.sum(MaskedArray(state.pos_first_moment[:,:,s], mask=mask),1))
 
                 denom[r,0] = denom[r,0] + np.sum(frame.posterior * \
-                             np.array([datum.mappable[:f,r].sum() for f in range(3)]))
+                             np.array([datum.is_pos_mappable[:f,r].sum() for f in range(3)]))
                 denom[r,8] = denom[r,8] + np.sum(frame.posterior * \
-                             np.array([datum.mappable[3*datum.M+f:,r].sum() for f in range(3)]))
+                             np.array([datum.is_pos_mappable[3*datum.M+f:,r].sum() for f in range(3)]))
 
         while reldiff>reltol:
 
@@ -1216,8 +1273,8 @@ class Emission(object):
                     if np.all(mask):
                         continue
 
-                    argA = datum.scale*MaskedArray(new_scale, mask=mask) + beta[r,s]
-                    argB = MaskedArray(datum.total[:,:,r], mask=mask) + self.rate_alpha[r,s]*beta[r,s]
+                    argA = datum.transcript_normalization_factor*MaskedArray(new_scale, mask=mask) + beta[r,s]
+                    argB = MaskedArray(datum.total_pileup[:,:,r], mask=mask) + self.rate_alpha[r,s]*beta[r,s]
                     pos = MaskedArray(state.pos_first_moment[:,:,s], mask=mask)
                     newbeta[r,s] = newbeta[r,s] + np.sum(frame.posterior * np.sum(pos *
                                                                                   (utils.nplog(argA) - digamma(argB) + argB / argA / self.rate_alpha[r, s]), 1))
@@ -1226,22 +1283,22 @@ class Emission(object):
                     # add extra terms for first state
                     # for l from 0 <= l < f:
                     for l in range(f):
-                        if datum.mappable[l,r]:
+                        if datum.is_pos_mappable[l,r]:
                             newbeta[r,0] = newbeta[r,0] + frame.posterior[f] * \
-                                           ((utils.nplog(datum.scale / 3. + beta[r, 0]) - \
+                                           ((utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]) - \
                                              digamma(datum.obs[l,r]+self.rate_alpha[r,0]*beta[r,0])) + \
                                             (datum.obs[l,r]+self.rate_alpha[r,0]*beta[r,0]) / \
-                                            self.rate_alpha[r,0]/(datum.scale/3.+beta[r,0]))
+                                            self.rate_alpha[r,0]/(datum.transcript_normalization_factor/3.+beta[r,0]))
 
                     # add extra terms for last state
                     # for l from 3*datum.M+f <= l < datum.L:
                     for l in range(3*datum.M+f, datum.L):
-                        if datum.mappable[l,r]:
+                        if datum.is_pos_mappable[l,r]:
                             newbeta[r,8] = newbeta[r,8] + frame.posterior[f] * \
-                                           ((utils.nplog(datum.scale / 3. + beta[r, 8]) - \
+                                           ((utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]) - \
                                              digamma(datum.obs[l,r]+self.rate_alpha[r,8]*beta[r,8])) + \
                                             (datum.obs[l,r]+self.rate_alpha[r,8]*beta[r,8]) / \
-                                            self.rate_alpha[r,8]/(datum.scale/3.+beta[r,8]))
+                                            self.rate_alpha[r,8]/(datum.transcript_normalization_factor/3.+beta[r,8]))
 
         newbeta = np.exp(newbeta / denom + digamma(self.rate_alpha*beta) - 1)
         return newbeta
@@ -1450,8 +1507,8 @@ def alpha_func_grad(x, data, states, frames, rescale, beta):
                 if np.all(mask):
                     continue
 
-                argA = MaskedArray(datum.total[:, :, r], mask=mask, fill_value=1) + x[r, s] * beta[r, s]
-                argB = datum.scale*MaskedArray(new_scale, mask=mask, fill_value=1) + beta[r, s]
+                argA = MaskedArray(datum.total_pileup[:, :, r], mask=mask, fill_value=1) + x[r, s] * beta[r, s]
+                argB = datum.transcript_normalization_factor*MaskedArray(new_scale, mask=mask, fill_value=1) + beta[r, s]
                 pos = MaskedArray(state.pos_first_moment[:, :, s], mask=mask, fill_value=1)
                 argC = np.sum(pos, 1)
 
@@ -1468,24 +1525,24 @@ def alpha_func_grad(x, data, states, frames, rescale, beta):
                 # add extra terms for first state
                 # for l from 0 <= l < f:
                 for l  in range(f):
-                    if datum.mappable[l,r]:
+                    if datum.is_pos_mappable[l,r]:
                         func = func + frame.posterior[f] * (x[r,0] * beta[r,0] * utils.nplog(beta[r, 0]) +
                                                             gammaln(datum.obs[l,r]+x[r,0]*beta[r,0]) - gammaln(x[r,0]*beta[r,0]) -
-                                                            (datum.obs[l,r]+x[r,0]*beta[r,0]) * utils.nplog(datum.scale / 3. + beta[r, 0]))
+                                                            (datum.obs[l,r]+x[r,0]*beta[r,0]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]))
                         gradient[r,0] = gradient[r,0] + frame.posterior[f] * beta[r,0] * (utils.nplog(beta[r, 0]) +
                                                                                           digamma(datum.obs[l,r]+x[r,0]*beta[r,0]) - digamma(x[r,0]*beta[r,0]) -
-                                                                                          utils.nplog(datum.scale / 3. + beta[r, 0]))
+                                                                                          utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]))
 
                 # add extra terms for last state
                 # for l from 3*datum.M+f <= l < datum.L:
                 for l in range(3*datum.M+f, datum.L):
-                    if datum.mappable[l,r]:
+                    if datum.is_pos_mappable[l,r]:
                         func = func + frame.posterior[f] * (x[r,8] * beta[r,8] * utils.nplog(beta[r, 8]) +
                                                             gammaln(datum.obs[l,r]+x[r,8]*beta[r,8]) - gammaln(x[r,8]*beta[r,8]) -
-                                                            (datum.obs[l,r]+x[r,8]*beta[r,8]) * utils.nplog(datum.scale / 3. + beta[r, 8]))
+                                                            (datum.obs[l,r]+x[r,8]*beta[r,8]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]))
                         gradient[r,8] = gradient[r,8] + frame.posterior[f] * beta[r,8] * (utils.nplog(beta[r, 8]) +
                                                                                           digamma(datum.obs[l,r]+x[r,8]*beta[r,8]) - digamma(x[r,8]*beta[r,8]) -
-                                                                                          utils.nplog(datum.scale / 3. + beta[r, 8]))
+                                                                                          utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]))
 
     func = -1.*func
     gradient = -1.*gradient
@@ -1524,8 +1581,8 @@ def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
                 if np.all(mask):
                     continue
 
-                argA = MaskedArray(datum.total[:,:,r], mask=mask, fill_value=1) + x[r,s]*beta[r,s]
-                argB = datum.scale*MaskedArray(new_scale, mask=mask, fill_value=1) + beta[r,s]
+                argA = MaskedArray(datum.total_pileup[:,:,r], mask=mask, fill_value=1) + x[r,s]*beta[r,s]
+                argB = datum.transcript_normalization_factor*MaskedArray(new_scale, mask=mask, fill_value=1) + beta[r,s]
                 pos = MaskedArray(state.pos_first_moment[:,:,s], mask=mask, fill_value=1)
                 argC = np.sum(pos, 1)
 
@@ -1546,13 +1603,13 @@ def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
                 # add extra terms for first state
                 # for l from 0 <= l < f:
                 for l in range(f):
-                    if datum.mappable[l,r]:
+                    if datum.is_pos_mappable[l,r]:
                         func = func + frame.posterior[f] * (x[r,0] * beta[r,0] * utils.nplog(beta[r, 0]) + \
                                                             gammaln(datum.obs[l,r]+x[r,0]*beta[r,0]) - gammaln(x[r,0]*beta[r,0]) - \
-                                                            (datum.obs[l,r]+x[r,0]*beta[r,0]) * utils.nplog(datum.scale / 3. + beta[r, 0]))
+                                                            (datum.obs[l,r]+x[r,0]*beta[r,0]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]))
                         gradient[r,0] = gradient[r,0] + frame.posterior[f] * beta[r,0] * (utils.nplog(beta[r, 0]) + \
                                                                                           digamma(datum.obs[l,r]+x[r,0]*beta[r,0]) - digamma(x[r,0]*beta[r,0]) - \
-                                                                                          utils.nplog(datum.scale / 3. + beta[r, 0]))
+                                                                                          utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]))
                         hessian[r,0] = hessian[r,0] + frame.posterior[f] * beta[r,0]**2 * \
                                        (polygamma(1,datum.obs[l,r]+x[r,0]*beta[r,0]) - \
                                        polygamma(1,x[r,0]*beta[r,0]))
@@ -1560,13 +1617,13 @@ def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
                 # add extra terms for last state
                 # for l from 3*datum.M+f <= l < datum.L:
                 for l in range(3*datum.M+f, datum.L):
-                    if datum.mappable[l,r]:
+                    if datum.is_pos_mappable[l,r]:
                         func = func + frame.posterior[f] * (x[r,8] * beta[r,8] * utils.nplog(beta[r, 8]) + \
                                                             gammaln(datum.obs[l,r]+x[r,8]*beta[r,8]) - gammaln(x[r,8]*beta[r,8]) - \
-                                                            (datum.obs[l,r]+x[r,8]*beta[r,8]) * utils.nplog(datum.scale / 3. + beta[r, 8]))
+                                                            (datum.obs[l,r]+x[r,8]*beta[r,8]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]))
                         gradient[r,8] = gradient[r,8] + frame.posterior[f] * beta[r,8] * (utils.nplog(beta[r, 8]) + \
                                                                                           digamma(datum.obs[l,r]+x[r,8]*beta[r,8]) - digamma(x[r,8]*beta[r,8]) - \
-                                                                                          utils.nplog(datum.scale / 3. + beta[r, 8]))
+                                                                                          utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]))
                         hessian[r,8] = hessian[r,8] + frame.posterior[f] * beta[r,8]**2 * \
                                        (polygamma(1,datum.obs[l,r]+x[r,8]*beta[r,8]) - \
                                        polygamma(1,x[r,8]*beta[r,8]))
@@ -1759,24 +1816,14 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
 
     return transition, emission, L
 
-def infer_coding_sequence(observations, codon_id, scales, mappability, transition, emission):
-
-    # cdef Data datum
-    # cdef State state
-    # cdef Frame frame
-    # cdef dict id
-    # cdef double scale
-    # cdef list data, states, frames
-    # cdef np.ndarray observation, mappable
-
-
+def infer_coding_sequence(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability, transition, emission):
     """
     Inflate serialized transition and emission dictionaries
     """
-    logger.info('Footprint counts: {}'.format(pformat(observations)))
-    logger.info('Codon flags: {}'.format(pformat(codon_id)))
-    logger.info('RNA counts: {}'.format(pformat(scales)))
-    logger.info('Mappability: {}'.format(pformat(mappability)))
+    # logger.info('Footprint counts: {}'.format(pformat(observations)))
+    # logger.info('Codon flags: {}'.format(pformat(codon_maps)))
+    # logger.info('RNA counts: {}'.format(pformat(scales)))
+    # logger.info('Mappability: {}'.format(pformat(mappability)))
     transition = {
         'seqparam': {
             'kozak': np.array(transition['seqparam']['kozak']),
@@ -1784,7 +1831,7 @@ def infer_coding_sequence(observations, codon_id, scales, mappability, transitio
             'stop': np.array(transition['seqparam']['stop'])
         }
     }
-    logger.info('Transition parameters: {}'.format(pformat(transition)))
+    # logger.info('Transition parameters: {}'.format(pformat(transition)))
 
     emission = {
         'S': emission['S'],
@@ -1793,31 +1840,37 @@ def infer_coding_sequence(observations, codon_id, scales, mappability, transitio
         'rate_alpha': np.array(emission['rate_alpha']['data']).reshape(emission['rate_alpha']['shape']),
         'rate_beta': np.array(emission['rate_beta']['data']).reshape(emission['rate_beta']['shape'])
     }
-    logger.info('Emission parameters: {}'.format(pformat(emission)))
+    # logger.info('Emission parameters: {}'.format(pformat(emission)))
 
     data = [
-        Data(observation, id, scale, mappable)
-        for observation,id,scale,mappable in zip(observations,codon_id,scales,mappability)
+        Data(
+            riboseq_footprint_pileup,
+            codon_map,
+            transcript_normalization_factor,
+            is_pos_mappable
+        )
+        for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable
+        in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability)
     ]
-    logger.info('There are {} Data items'.format(len(data)))
-    states = [State(datum.M) for datum in data]
+    # logger.info('There are {} Data items'.format(len(data)))
+    states = [State(datum.n_triplets) for datum in data]
     frames = [Frame() for datum in data]
 
     # for state,frame,datum in zip(states, frames, data):
     for i, (state, frame, datum) in enumerate(zip(states, frames, data), start=1):
         logger.info('==== Starting inference loop {}'.format(i))
         datum.compute_log_probability(emission)
-        logger.info('Log probability {}:\n{}'.format(datum.log_probability.shape, (datum.log_probability)))
-        logger.info('Extra Log probability {}:\n{}'.format(datum.extra_log_probability.shape, pformat(datum.extra_log_probability)))
+        # logger.info('Log probability {}:\n{}'.format(datum.log_probability.shape, (datum.log_probability)))
+        # logger.info('Extra Log probability {}:\n{}'.format(datum.extra_log_probability.shape, pformat(datum.extra_log_probability)))
         state._forward_update(datum, transition)
-        logger.info('State alpha {}:\n{}'.format(state.alpha.shape, pformat(state.alpha)))
-        logger.info('State likelihood {}:\n{}'.format(state.likelihood.shape, pformat(state.likelihood)))
+        # logger.info('State alpha {}:\n{}'.format(state.alpha.shape, pformat(state.alpha)))
+        # logger.info('State likelihood {}:\n{}'.format(state.likelihood.shape, pformat(state.likelihood)))
         frame.update(datum, state)
-        logger.info('Frame posterior: {}'.format(pformat(frame.posterior)))
+        # logger.info('Frame posterior: {}'.format(pformat(frame.posterior)))
         state.decode(datum, transition, emission, frame)
-        logger.info('State max posterior:\n{}'.format(pformat(state.max_posterior)))
-        logger.info('State best start: {}'.format(pformat(state.best_start)))
-        logger.info('State best stop: {}'.format(pformat(state.best_stop)))
+        # logger.info('State max posterior:\n{}'.format(pformat(state.max_posterior)))
+        # logger.info('State best start: {}'.format(pformat(state.best_start)))
+        # logger.info('State best stop: {}'.format(pformat(state.best_stop)))
 
     return states, frames
 
