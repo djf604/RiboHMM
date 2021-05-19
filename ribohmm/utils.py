@@ -11,15 +11,40 @@ STARTCODONS = [
 ]
 STOPCODONS = ['UAA', 'UAG', 'UGA']
 
-binarize = dict([(0,np.array([False,False,False])),
-                 (1,np.array([False,False,True])),
-                 (2,np.array([False,True,False])),
-                 (3,np.array([False,True,True])),
-                 (4,np.array([True,False,False])),
-                 (5,np.array([True,False,True])),
-                 (6,np.array([True,True,False])),
-                 (7,np.array([True,True,True]))
-                ])
+
+class Mappability:
+    UUU = 0
+    UUM = 1
+    UMU = 2
+    UMM = 3
+    MUU = 4
+    MUM = 5
+    MMU = 6
+    MMM = 7
+
+
+class States:
+    ST_5PRIME_UTS = 0
+    ST_5PRIME_UTS_PLUS = 1
+    ST_TIS = 2
+    ST_TIS_PLUS = 3
+    ST_TES = 4
+    ST_TTS_MINUS = 5
+    ST_TTS = 6
+    ST_3PRIME_UTS_MINUS = 7
+    ST_3PRIME_UTS = 8
+
+
+binarize = dict([
+    (0, np.array([False, False, False])),
+    (1, np.array([False, False, True])),
+    (2, np.array([False, True,  False])),
+    (3, np.array([False, True,  True])),
+    (4, np.array([True,  False, False])),
+    (5, np.array([True,  False, True])),
+    (6, np.array([True,  True,  False])),
+    (7, np.array([True,  True,  True]))
+])
 
 
 # debinarize = dict([(val.tostring(),key) for key,val in binarize.iteritems()])

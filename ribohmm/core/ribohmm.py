@@ -11,6 +11,7 @@ from cvxopt import solvers
 import time, pdb
 
 from ribohmm import utils
+from ribohmm.utils import Mappability, States
 from numba import njit, jit
 
 from pprint import pformat
@@ -34,7 +35,7 @@ def nplog(x):
 # @cython.nonecheck(False)
 # cdef double normalize(np.ndarray[np.float64_t, ndim=1] x):
 # @njit
-def normalize(x):
+def normalize(arr):
     """Compute the log-sum-exp of a real-valued vector,
        avoiding numerical overflow issues.
 
@@ -47,18 +48,11 @@ def normalize(x):
         c : scalar (float64)
 
     """
-
-    # cdef long i, I
-    # cdef double c, xmax
-
-    I = 9
-    xmax = np.max(x)
-
-    c = 0.
-    # for i from 0 <= i < I:
-    for i in range(I):
-        c = c + exp(x[i] - xmax)
-    c = log(c) + xmax
+    arr_max = np.max(arr)
+    c = 0
+    for val in arr:
+        c += exp(val - arr_max)
+    c = log(c) + arr_max
     return c
 
 # cdef np.ndarray[np.float64_t, ndim=1] outsum(np.ndarray[np.float64_t, ndim=2] arr):
@@ -199,7 +193,13 @@ class Data:
         #  - [True,  True,  False]
         #  - [True,  True,  True]
         # Why is 7 included in this?
-        one_base_unmappable = np.array([3, 5, 6, 7]).reshape(4, 1)
+        # one_base_unmappable = np.array([3, 5, 6, 7]).reshape(4, 1)
+        one_base_unmappable = np.array([
+            Mappability.UMM,
+            Mappability.MUM,
+            Mappability.MMU,
+            Mappability.MMM
+        ]).reshape(4, 1)
 
         # loop over possible frames
         for frame_i in range(3):
@@ -252,9 +252,14 @@ class Data:
                     )
 
                 # probability under occupancy model, accounting for mappability
+                # The alpha and beta model parameters are arrays of size (n_footprint_lengths, n_states)
+                # alpha and beta below are 1-D arrays of size n_states
                 alpha = emission['rate_alpha'][footprint_length_i]
                 beta = emission['rate_beta'][footprint_length_i]
+                # The rescale variable ends up being an array of size n_triplets, where each values corresponds to
+                # the rescale value for that triplet's missingness type
                 rescale = emission['rescale'][footprint_length_i, :, self.missingness_type[footprint_length_i, frame_i, :]]
+                # Total pileup for each triplet, where each value is a single-element array
                 total = self.total_pileup[frame_i, :, footprint_length_i:footprint_length_i + 1]
                 rate_log_probability = (
                     alpha * beta * utils.nplog(beta) +
@@ -267,36 +272,39 @@ class Data:
 
                 # ensure that triplets with all positions unmappable
                 # do not contribute to the data probability
-                mask = self.missingness_type[footprint_length_i, frame_i, :] == 0
+                mask = self.missingness_type[footprint_length_i, frame_i, :] == Mappability.UUU
                 rate_log_probability[mask, :] = 0
+
+                # Store the log probability
                 self.log_probability[frame_i] += log_probability + rate_log_probability
 
                 # likelihood of extra positions in transcript
                 # for l from 0 <= l < f:
                 # Compute likelihood for bases before the core sequence of triplets
-                for l in range(frame_i):
-                    if self.is_pos_mappable[l, footprint_length_i]:
+                # TODO Consolidate this code, make it DRY
+                for extra_base_pos in range(frame_i):
+                    if self.is_pos_mappable[extra_base_pos, footprint_length_i]:
                         self.extra_log_probability[frame_i] += (
-                            alpha[0] * beta[0] * utils.nplog(beta[0]) -
-                            (alpha[0] * beta[0] + self.riboseq_pileup[l, footprint_length_i]) *
-                            utils.nplog(beta[0] + self.transcript_normalization_factor / 3.) +
-                            gammaln(alpha[0] * beta[0]+self.riboseq_pileup[l, footprint_length_i]) -
-                            gammaln(alpha[0] * beta[0]) +
-                            self.riboseq_pileup[l, footprint_length_i] * utils.nplog(self.transcript_normalization_factor / 3.) -
-                            gammaln(self.riboseq_pileup[l, footprint_length_i] + 1)
+                            alpha[States.ST_5PRIME_UTS] * beta[States.ST_5PRIME_UTS] * utils.nplog(beta[States.ST_5PRIME_UTS]) -
+                            (alpha[States.ST_5PRIME_UTS] * beta[States.ST_5PRIME_UTS] + self.riboseq_pileup[extra_base_pos, footprint_length_i]) *
+                            utils.nplog(beta[States.ST_5PRIME_UTS] + self.transcript_normalization_factor / 3.) +
+                            gammaln(alpha[States.ST_5PRIME_UTS] * beta[States.ST_5PRIME_UTS]+self.riboseq_pileup[extra_base_pos, footprint_length_i]) -
+                            gammaln(alpha[States.ST_5PRIME_UTS] * beta[States.ST_5PRIME_UTS]) +
+                            self.riboseq_pileup[extra_base_pos, footprint_length_i] * utils.nplog(self.transcript_normalization_factor / 3.) -
+                            gammaln(self.riboseq_pileup[extra_base_pos, footprint_length_i] + 1)
                         )
 
                 # Compute likelihood for bases after the core sequence of triplets
-                for l in range(3 * self.n_triplets + frame_i, self.transcript_length):
-                    if self.is_pos_mappable[l, footprint_length_i]:
+                for extra_base_pos in range(3 * self.n_triplets + frame_i, self.transcript_length):
+                    if self.is_pos_mappable[extra_base_pos, footprint_length_i]:
                         self.extra_log_probability[frame_i] += (
-                            alpha[8] * beta[8] * utils.nplog(beta[8]) -
-                            (alpha[8] * beta[8] + self.riboseq_pileup[l, footprint_length_i]) *
-                            utils.nplog(beta[8] + self.transcript_normalization_factor / 3.) +
-                            gammaln(alpha[8] * beta[8] + self.riboseq_pileup[l, footprint_length_i]) -
-                            gammaln(alpha[8] * beta[8]) +
-                            self.riboseq_pileup[l, footprint_length_i] * utils.nplog(self.transcript_normalization_factor / 3.) -
-                            gammaln(self.riboseq_pileup[l, footprint_length_i] + 1)
+                            alpha[States.ST_3PRIME_UTS] * beta[States.ST_3PRIME_UTS] * utils.nplog(beta[States.ST_3PRIME_UTS]) -
+                            (alpha[States.ST_3PRIME_UTS] * beta[States.ST_3PRIME_UTS] + self.riboseq_pileup[extra_base_pos, footprint_length_i]) *
+                            utils.nplog(beta[States.ST_3PRIME_UTS] + self.transcript_normalization_factor / 3.) +
+                            gammaln(alpha[States.ST_3PRIME_UTS] * beta[States.ST_3PRIME_UTS] + self.riboseq_pileup[extra_base_pos, footprint_length_i]) -
+                            gammaln(alpha[States.ST_3PRIME_UTS] * beta[States.ST_3PRIME_UTS]) +
+                            self.riboseq_pileup[extra_base_pos, footprint_length_i] * utils.nplog(self.transcript_normalization_factor / 3.) -
+                            gammaln(self.riboseq_pileup[extra_base_pos, footprint_length_i] + 1)
                         )
 
         # check for infs or nans in log likelihood
@@ -359,7 +367,7 @@ class State(object):
         # stores the (start,stop) and posterior for the MAP state for each frame
         self.best_start = []
         self.best_stop = []
-        self.max_posterior = np.empty((3,), dtype=np.float64)
+        self.max_posterior = np.empty(shape=(3,), dtype=np.float64)
 
     # @cython.boundscheck(False)
     # @cython.wraparound(False)
@@ -368,101 +376,104 @@ class State(object):
     # @jit(nopython=True)
     # @njit
     def _forward_update(self, data, transition):
-
-        # cdef long f, i, s, m
-        # cdef double L, p, q
-        # cdef np.ndarray[np.uint8_t, ndim=1] swapidx
-        # cdef np.ndarray[np.float64_t, ndim=1] newalpha, logprior
-        # cdef np.ndarray[np.float64_t, ndim=2] P, Q
-
-
         """
         Inflate serialized transition dictionary
         """
-
+        # Define one for each of the 9 States
         logprior = nplog([1, 0, 0, 0, 0, 0, 0, 0, 0])
-        swapidx = np.array([2, 3, 6, 7]).astype(np.uint8)
+        # swapidx = np.array([2, 3, 6, 7]).astype(np.uint8)
+        swapidx = np.array(
+            [States.ST_TIS, States.ST_TIS_PLUS, States.ST_TTS, States.ST_3PRIME_UTS_MINUS]
+        ).astype(np.uint8)
         self.alpha = np.zeros((3, self.n_triplets, self.n_states), dtype=np.float64)
         self.likelihood = np.zeros((self.n_triplets, 3), dtype=np.float64)
 
+        # data.codon_map['kozak'] is shape (n_triplets, n_frames) and is the kozak values for each triplet in
+        # each frame
+        # transition['seqparam']['start'] is an 11-element array, one value for each defined Start codon, where 0 is
+        # defined as not a Start codon
+        # data.codon_map['start'] is an integer value for each triplet and frame that corresponds to a Start codon, or
+        # 0 if not any of the Start codons
+        # transition['seqparam']['start'][data.codon_map['start']]) is the broadcast of each Start codon seqparam value
+        # to the appropriate codon type
+        # The shape of P will be (n_triplets, n_frames)
+        # Q is essentially the same thing but with Stop codons
         P = logistic(
             -1 * (transition['seqparam']['kozak'] * data.codon_map['kozak'] +
                   transition['seqparam']['start'][data.codon_map['start']])
         )
         Q = logistic(-1 * transition['seqparam']['stop'][data.codon_map['stop']])
 
-        # @njit
-        # def _f(swapidx, newalpha, alpha, log_prob, f, m):
-        #     # states 2,3,6,7
-        #     for s in swapidx:
-        #         newalpha[s] = alpha[f, m - 1, s - 1] + log_prob[f, m, s]
+        for frame_i in range(3):
+            # Determine the likelihood and alpha for the first triplet
+            # data.log_probability[frame_i, triplet_i, state_i]
+            # Both logprior and the log_probabilty are size (9,)
+            newalpha = logprior + data.log_probability[frame_i, 0, :]
+            normalized_new_alpha = normalize(newalpha)
+            # Set the likelihood and alpha for each state for the first triplet
+            for state_i in range(self.n_states):
+                self.alpha[frame_i, 0, state_i] = newalpha[state_i] - normalized_new_alpha
+            self.likelihood[0, frame_i] = normalized_new_alpha
 
-        # for f from 0 <= f < 3:
-        for f in range(3):
-            # print('Iteration {}'.format(f))
-
-            newalpha = logprior + data.log_probability[f, 0, :]
-            L = normalize(newalpha)
-            # for s from 0 <= s < self.S:
-            for s in range(self.n_states):
-                self.alpha[f, 0, s] = newalpha[s] - L
-            self.likelihood[0, f] = L
-
-            # for m from 1 <= m < self.M:
-            for m in range(1, self.n_triplets):
-
-                # _f(swapidx=swapidx, newalpha=newalpha, alpha=self.alpha,
-                #    log_prob=data.log_probability, f=f, m=m)
+            # For all triplets after the first triplet
+            for triplet_i in range(1, self.n_triplets):
 
                 # states 2,3,6,7
-                for s in swapidx:
-                    newalpha[s] = self.alpha[f, m - 1, s - 1] + data.log_probability[f, m, s]
+                # TIS, TIS+, TTS, 3'UTS-
+                for swap_state_i in swapidx:
+                    newalpha[swap_state_i] = (
+                        self.alpha[frame_i, triplet_i - 1, swap_state_i - 1]
+                        + data.log_probability[frame_i, triplet_i, swap_state_i]
+                    )
 
                 # state 0,1
+                # 5'UTS, 5'UTS+
                 try:
-                    p = self.alpha[f, m - 1, 0] + log(1 - P[m, f])
-                    q = self.alpha[f, m - 1, 0] + log(P[m, f])
-                except ValueError:
-                    if P[m, f] == 0.0:
-                        p = self.alpha[f, m - 1, 0]
+                    # Get the alpha value from the previous triplet, state 5'UTS
+                    p = self.alpha[frame_i, triplet_i - 1, States.ST_5PRIME_UTS] + log(1 - P[triplet_i, frame_i])
+                    q = self.alpha[frame_i, triplet_i - 1, States.ST_5PRIME_UTS] + log(P[triplet_i, frame_i])
+                except ValueError:  # log(x) where x <= 0
+                    if P[triplet_i, frame_i] == 0.0:
+                        p = self.alpha[frame_i, triplet_i - 1, States.ST_5PRIME_UTS]
                         q = utils.MIN
                     else:
                         p = utils.MIN
-                        q = self.alpha[f, m - 1, 0]
-                newalpha[0] = p + data.log_probability[f, m, 0]
-                newalpha[1] = q + data.log_probability[f, m, 1]
+                        q = self.alpha[frame_i, triplet_i - 1, States.ST_5PRIME_UTS]
+                newalpha[States.ST_5PRIME_UTS] = p + data.log_probability[frame_i, triplet_i, States.ST_5PRIME_UTS]
+                newalpha[States.ST_5PRIME_UTS_PLUS] = q + data.log_probability[frame_i, triplet_i, States.ST_5PRIME_UTS_PLUS]
 
                 # state 4
-                p = self.alpha[f, m - 1, 3]
+                # TES
+                p = self.alpha[frame_i, triplet_i - 1, States.ST_TIS_PLUS]
                 try:
-                    q = self.alpha[f, m - 1, 4] + log(1 - Q[m, f])
+                    q = self.alpha[frame_i, triplet_i - 1, States.ST_TES] + log(1 - Q[triplet_i, frame_i])
                 except ValueError:
                     q = utils.MIN
                 if p > q:
-                    newalpha[4] = log(1 + exp(q - p)) + p + data.log_probability[f, m, 4]
+                    newalpha[States.ST_TES] = log(1 + exp(q - p)) + p + data.log_probability[frame_i, triplet_i, States.ST_TES]
                 else:
-                    newalpha[4] = log(1 + exp(p - q)) + q + data.log_probability[f, m, 4]
+                    newalpha[States.ST_TES] = log(1 + exp(p - q)) + q + data.log_probability[frame_i, triplet_i, States.ST_TES]
 
                 # state 5
                 try:
-                    newalpha[5] = self.alpha[f, m - 1, 4] + log(Q[m, f]) + data.log_probability[f, m, 5]
+                    newalpha[States.ST_TTS_MINUS] = self.alpha[frame_i, triplet_i - 1, States.ST_TES] + log(Q[triplet_i, frame_i]) + data.log_probability[frame_i, triplet_i, States.ST_TTS_MINUS]
                 except ValueError:
-                    newalpha[5] = utils.MIN
+                    newalpha[States.ST_TTS_MINUS] = utils.MIN
 
                 # state 8
-                p = self.alpha[f, m - 1, 7]
-                q = self.alpha[f, m - 1, 8]
+                p = self.alpha[frame_i, triplet_i - 1, States.ST_3PRIME_UTS_MINUS]
+                q = self.alpha[frame_i, triplet_i - 1, States.ST_5PRIME_UTS]
                 if p > q:
-                    newalpha[8] = log(1 + exp(q - p)) + p + data.log_probability[f, m, 8]
+                    newalpha[States.ST_5PRIME_UTS] = log(1 + exp(q - p)) + p + data.log_probability[frame_i, triplet_i, States.ST_5PRIME_UTS]
                 else:
-                    newalpha[8] = log(1 + exp(p - q)) + q + data.log_probability[f, m, 8]
+                    newalpha[States.ST_5PRIME_UTS] = log(1 + exp(p - q)) + q + data.log_probability[frame_i, triplet_i, States.ST_5PRIME_UTS]
 
-                L = normalize(newalpha)
+                normalized_new_alpha = normalize(newalpha)
                 # for s from 0 <= s < self.S:
                 for s in range(self.n_states):
-                    self.alpha[f, m, s] = newalpha[s] - L
+                    self.alpha[frame_i, triplet_i, s] = newalpha[s] - normalized_new_alpha
 
-                self.likelihood[m, f] = L
+                self.likelihood[triplet_i, frame_i] = normalized_new_alpha
 
         if np.isnan(self.alpha).any() or np.isinf(self.alpha).any():
             print('Warning: Inf/Nan in forward update step')
@@ -582,96 +593,105 @@ class State(object):
         pointer[0,0] = np.array([0])
         alpha = np.zeros((self.n_states,), dtype=np.float64)
         newalpha = np.zeros((self.n_states,), dtype=np.float64)
+        # Most likely hidden state for each triplet
         state = np.zeros((self.n_triplets,), dtype=np.uint8)
 
         # for f from 0 <= f < 3:
-        for f in range(3):
+        for frame_i in range(3):
 
             # find the state sequence with highest posterior
-            alpha = logprior + data.log_probability[f,0,:]
+            # data.log_probability is (frame_i, triplet_i, state_i)
+            # This frame, first triplet, all states
+            alpha = logprior + data.log_probability[frame_i, 0, :]
 
             # for m from 1 <= m < self.n_triplets:
-            for m in range(1, self.n_triplets):
+            for triplet_i in range(1, self.n_triplets):
 
                 # states 2,3,6,7
                 for s in swapidx:
-                    newalpha[s] = alpha[s-1]
-                    pointer[m,s] = s-1
+                    newalpha[s] = alpha[s - 1]
+                    pointer[triplet_i, s] = s - 1
 
                 # state 0,1
                 try:
-                    p = alpha[0] + log(1-P[m,f])
-                    q = alpha[0] + log(P[m,f])
+                    p = alpha[0] + log(1 - P[triplet_i, frame_i])
+                    q = alpha[0] + log(P[triplet_i, frame_i])
                 except ValueError:
-                    if P[m,f]==0.0:
+                    if P[triplet_i, frame_i] == 0.0:
                         p = alpha[0]
                         q = utils.MIN
                     else:
                         p = utils.MIN
                         q = alpha[0]
-                pointer[m,0] = 0
+                pointer[triplet_i, 0] = 0
                 newalpha[0] = p
-                pointer[m,1] = 0
+                pointer[triplet_i, 1] = 0
                 newalpha[1] = q
 
                 # state 4
                 p = alpha[3]
                 try:
-                    q = alpha[4] + log(1-Q[m,f])
+                    q = alpha[4] + log(1-Q[triplet_i, frame_i])
                 except ValueError:
                     q = utils.MIN
-                if p>=q:
+                if p >= q:
                     newalpha[4] = p
-                    pointer[m,4] = 3
+                    pointer[triplet_i, 4] = 3
                 else:
                     newalpha[4] = q
-                    pointer[m,4] = 4
+                    pointer[triplet_i, 4] = 4
 
                 # state 5
                 try:
-                    newalpha[5] = alpha[4] + log(Q[m,f])
+                    newalpha[5] = alpha[4] + log(Q[triplet_i, frame_i])
                 except ValueError:
                     newalpha[5] = utils.MIN
-                pointer[m,5] = 4
+                pointer[triplet_i, 5] = 4
 
                 # state 8
                 p = alpha[7]
                 q = alpha[8]
-                if p>=q:
+                if p >= q:
                     newalpha[8] = p
-                    pointer[m,8] = 7
+                    pointer[triplet_i, 8] = 7
                 else:
                     newalpha[8] = q
-                    pointer[m,8] = 8
+                    pointer[triplet_i, 8] = 8
 
                 # for s from 0 <= s < self.n_states:
                 for s in range(self.n_states):
-                    alpha[s] = newalpha[s] + data.log_probability[f,m,s]
+                    alpha[s] = newalpha[s] + data.log_probability[frame_i, triplet_i, s]
 
             # constructing the MAP state sequence
-            state[self.n_triplets-1] = np.argmax(alpha)
-            for m in range(self.n_triplets-2,0,-1):
-                state[m] = pointer[m+1,state[m+1]]
-            state[0] = pointer[0,0]
-            self.max_posterior[f] = exp(np.max(alpha) - np.sum(self.likelihood[:,f]))
+            # alpha is 1-dim array of size n_states
+            state[self.n_triplets - 1] = np.argmax(alpha)
+            # Start on the second-to-last triplet, then count backward to the first triplet
+            for triplet_i in range(self.n_triplets - 2, 0, -1):
+                state[triplet_i] = pointer[triplet_i + 1, state[triplet_i + 1]]
+            state[0] = pointer[0, 0]
+            self.max_posterior[frame_i] = exp(np.max(alpha) - np.sum(self.likelihood[:, frame_i]))
 
             # identifying start codon position
+            # state is 1-dim array of size n_triplets
+            # This gives the position in the transcript, not the triplet index
+            # Returns the most upstream possible start codon
             try:
-                self.best_start.append(np.where(state==2)[0][0]*3+f)
+                self.best_start.append(np.where(state == States.ST_TIS)[0][0] * 3 + frame_i)
             except IndexError:
                 self.best_start.append(None)
 
             # identifying stop codon position
             try:
-                self.best_stop.append(np.where(state==7)[0][0]*3+f)
+                # Should this be TTS?
+                self.best_stop.append(np.where(state == States.ST_3PRIME_UTS_MINUS)[0][0] * 3 + frame_i)
             except IndexError:
                 self.best_stop.append(None)
 
-        self.alpha = np.empty((1,1,1), dtype=np.float64)
-        self.pos_cross_moment_start = np.empty((1,1,1), dtype=np.float64)
-        self.pos_cross_moment_stop = np.empty((1,1,1), dtype=np.float64)
-        self.pos_first_moment = np.empty((1,1,1), dtype=np.float64)
-        self.likelihood = np.empty((1,1), dtype=np.float64)
+        self.alpha = np.empty((1, 1, 1), dtype=np.float64)
+        self.pos_cross_moment_start = np.empty((1, 1, 1), dtype=np.float64)
+        self.pos_cross_moment_stop = np.empty((1, 1, 1), dtype=np.float64)
+        self.pos_first_moment = np.empty((1, 1, 1), dtype=np.float64)
+        self.likelihood = np.empty((1, 1), dtype=np.float64)
 
     # @cython.boundscheck(False)
     # @cython.wraparound(False)

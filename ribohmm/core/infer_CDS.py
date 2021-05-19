@@ -92,7 +92,6 @@ def parse_args():
     return options
 
 def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
-
     posteriors = state.max_posterior*frame.posterior
     index = np.argmax(posteriors)
     tis = state.best_start[index]
