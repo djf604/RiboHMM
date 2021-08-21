@@ -19,11 +19,9 @@ class Genome():
 
     def get_sequence(self, transcripts):
         """
-
         :param transcripts:
         :return:
         """
-
         sequences = []
         for transcript in transcripts:
 
@@ -215,6 +213,7 @@ class Transcript():
         self.chromosome = chrom if chrom.startswith('c') else 'chr{}'.format(chrom)
         self.start = int(start)
         self.stop = int(stop)
+        self.raw_attrs = attrs
 
         self.strand = strand if strand in {'+', '-'} else '.'
 
@@ -298,7 +297,7 @@ class Transcript():
             raise ValueError
 
 
-def load_gtf(filename, use_cache=True):
+def load_gtf(filename, use_cache=False):
     """
     Returns a dictionary of transcript_id::str -> Transcript
     :param filename:

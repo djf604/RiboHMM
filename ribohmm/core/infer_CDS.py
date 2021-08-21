@@ -8,7 +8,7 @@ import numpy as np
 
 from ribohmm import core, utils
 from ribohmm.core import seq as seq
-from ribohmm.core.ribohmm import infer_coding_sequence
+from ribohmm.core.ribohmm import infer_coding_sequence, discovery_mode_data_logprob
 
 import logging
 logging.basicConfig(
@@ -142,7 +142,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
     model_params = json.load(open(model_file))
 
     # load transcripts
-    transcript_names = list(transcript_models.keys())
+    transcript_names = list(transcript_models.keys())[:100]
     N = len(transcript_names)
     logger.info('Number of transcripts: {}'.format(N))
 
@@ -221,12 +221,40 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                 rna_mappability = [np.ones(c.shape,dtype='bool') for c in footprint_counts]
 
             logger.info('Running inference')
-            states, frames = infer_coding_sequence(footprint_counts, codon_maps, \
-                                                        rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
+            # states, frames = infer_coding_sequence(footprint_counts, codon_maps, \
+            #                                             rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
+            pos_data_log_probs = discovery_mode_data_logprob(
+                riboseq_footprint_pileups=footprint_counts,
+                codon_maps=codon_maps,
+                transcript_normalization_factors=rna_counts,
+                mappability=rna_mappability,
+                transition=model_params['transition'],
+                emission=model_params['emission']
+            )
+            discovery_mod_results_pos = [
+                {
+                    'transcript_info': {
+                        'chr': t.chromosome,
+                        'start': t.start,
+                        'stop': t.stop,
+                        'strand': t.strand,
+                        'length': t.stop - t.start + 1
+                    },
+                    'transcript_string': str(t.raw_attrs),
+                    'results': candidate_cds_likelihoods
+                }
+                for t, candidate_cds_likelihoods in zip(transcripts, pos_data_log_probs)
+            ]
 
-            logger.info('Writing out inferred CDS')
-            for transcript,state,frame,rna_sequence in zip(transcripts,states,frames,rna_sequences):
-                write_inferred_cds(handle, transcript, state, frame, rna_sequence)
+
+            # import pickle
+            # with open('candidate_cds2.pkl', 'wb') as out:
+            #     pickle.dump({'pos': pos_data_log_probs}, out)
+
+
+            # logger.info('Writing out inferred CDS')
+            # for transcript,state,frame,rna_sequence in zip(transcripts,states,frames,rna_sequences):
+            #     write_inferred_cds(handle, transcript, state, frame, rna_sequence)
 
         # focus on negative strand
         logger.info('Looking at transcript negative strands')
@@ -283,13 +311,38 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             #     }, out)
             # import sys
             # sys.exit()
-            states, frames = infer_coding_sequence(footprint_counts, codon_maps, \
-                                                        rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
+            # states, frames = infer_coding_sequence(footprint_counts, codon_maps, \
+            #                                             rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
+            neg_data_log_probs = discovery_mode_data_logprob(
+                riboseq_footprint_pileups=footprint_counts,
+                codon_maps=codon_maps,
+                transcript_normalization_factors=rna_counts,
+                mappability=rna_mappability,
+                transition=model_params['transition'],
+                emission=model_params['emission']
+            )
+            discovery_mod_results_neg = [
+                {
+                    'transcript_info': {
+                        'chr': t.chromosome,
+                        'start': t.start,
+                        'stop': t.stop,
+                        'strand': t.strand,
+                        'length': t.stop - t.start + 1
+                    },
+                    'transcript_string': str(t.raw_attrs),
+                    'results': candidate_cds_likelihoods
+                }
+                for t, candidate_cds_likelihoods in zip(transcripts, neg_data_log_probs)
+            ]
 
-            logger.info('Writing out inferred CDS')
-            for transcript, state, frame, rna_sequence in zip(transcripts, states, frames, rna_sequences):
-                write_inferred_cds(handle, transcript, state, frame, rna_sequence)
+            # logger.info('Writing out inferred CDS')
+            # for transcript, state, frame, rna_sequence in zip(transcripts, states, frames, rna_sequences):
+            #     write_inferred_cds(handle, transcript, state, frame, rna_sequence)
 
+    import pickle
+    with open('candidate_orf_errors3.pkl', 'wb') as out:
+        pickle.dump({'pos': discovery_mod_results_pos, 'neg': discovery_mod_results_neg}, out)
 
     logger.info('Closing handles')
     handle.close()
@@ -310,6 +363,13 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
     genome_track.close()
 
     logger.info('Finished')
+
+
+def discovery_mode(model_file, transcript_models, genome_track, mappability_tabix_prefix, ribo_track,
+                   rnaseq_track, output_directory):
+    model_params = json.load(open(model_file))
+
+
 
 
 # if __name__=="__main__":

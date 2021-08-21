@@ -15,12 +15,15 @@ from ribohmm.utils import Mappability, States
 from numba import njit, jit
 
 from pprint import pformat
+from collections import namedtuple
 import logging
 logger = logging.getLogger('viterbi_log')
 
 solvers.options['maxiters'] = 300
 solvers.options['show_progress'] = False
 # logistic = lambda x: 1./(1+np.exp(x))
+
+CandidateCDS = namedtuple('CandidateCDS', 'frame start stop')
 
 # @njit
 def logistic(x):
@@ -65,6 +68,7 @@ def outsum(arr):
     return sum([a for a in arr])
 
 class Data:
+    CandidateCDS = namedtuple('CandidateCDS', 'frame_i start_triplet_i stop_triplet_i'.split())
 
     # def __cinit__(self, np.ndarray[np.uint64_t, ndim=2] obs, dict codon_id, \
     #               double scale, np.ndarray[np.uint8_t, ndim=2, cast=True] mappable):
@@ -316,6 +320,102 @@ class Data:
             print('Warning: Inf/Nan in extra log likelihood')
             pdb.set_trace()
 
+    def compute_observed_pileup_deviation(self, emission, return_sorted=True):
+        """
+        For each ORF, for each read length, for the first two base positions in each triplet, computes a
+        difference between observed and expected pileup
+        :param candidate_orfs:
+        :param emission:
+        :return:
+        """
+        orfs_with_errors = list()
+        for candidate_orf in self.get_candidate_cds_simple():
+            footprint_errors = list()
+            for footprint_length_i in range(self.n_footprint_lengths):
+                expected = emission['logperiodicity'][footprint_length_i]
+                observed_frame_i = candidate_orf.frame
+                observed_start = candidate_orf.start
+                observed_stop = candidate_orf.stop
+
+                orf_square_error = np.zeros(shape=(self.n_triplets, 3))
+                for triplet_i in range(self.n_triplets):
+                    triplet_state = get_triplet_state(triplet_i, start_pos=observed_start, stop_pos=observed_stop)
+                    state_expected = np.exp(expected[triplet_state])
+
+                    # Get observed pileup proportions
+                    triplet_positions = slice(triplet_i * 3 + observed_frame_i, 3 * triplet_i + observed_frame_i + 3)
+                    triplet_pileups = self.riboseq_pileup[triplet_positions, footprint_length_i]
+                    if triplet_pileups.sum() == 0:
+                        triplet_proportions = np.ones(3) / 3  # TODO Should this be all 0s?
+                    else:
+                        triplet_proportions = triplet_pileups / triplet_pileups.sum()
+                    square_error = (triplet_proportions - state_expected) ** 2
+                    # import random
+                    # if random.random() < 0.01:
+                    #     print('######')
+                    #     print(f'Triplet_state: {triplet_state}')
+                    #     print(f'Expected proportion: {state_expected}')
+                    #     print(f'triplet pileups: {triplet_pileups}')
+                    #     print(f'triplet_proportion: {triplet_proportions}')
+                    #     print(f'square error: {square_error}')
+                    orf_square_error[triplet_i] = square_error
+
+                orf_rmse = np.sqrt(np.sum(orf_square_error[:, :2]) / (self.n_triplets * 2))
+                footprint_errors.append(orf_rmse)
+            orf_error = np.mean(footprint_errors)
+            orfs_with_errors.append((candidate_orf, orf_error))
+
+        if not return_sorted:
+            return orfs_with_errors
+        return sorted(orfs_with_errors, key=lambda r: r[1])
+
+    def get_candidate_cds_simple(self):
+        N_FRAMES = 3
+        n_triplets = self.codon_map['start'].shape[0]
+        candidate_cds = list()
+
+        for pos_i in range(n_triplets):
+            for frame_i in range(N_FRAMES):
+                if self.codon_map['start'][pos_i, frame_i] > 0:
+                    for stop_i in range(pos_i, n_triplets):
+                        if self.codon_map['stop'][stop_i, frame_i] > 0:
+                            candidate_cds.append(CandidateCDS(
+                                frame=frame_i,
+                                start=pos_i,
+                                stop=stop_i
+                            ))
+                            break
+
+        return candidate_cds
+
+    def get_candidate_cds(self):
+        """
+        Return a list of candidate CDS
+        :return:
+        """
+        N_FRAMES = 3
+
+        candidate_cds = list()
+
+        # Get the first occurrence of a stop codon for each frame
+        stop_pointers = (self.codon_map['stop'] > 0).argmax(axis=0)
+
+        for start_pointer_i in range(self.n_triplets):
+            if np.any(start_pointer_i >= stop_pointers):
+
+                pass  # TODO Move stop pointers
+            for frame_i, is_start_codon in enumerate(self.codon_map['start'][start_pointer_i]):
+                if is_start_codon:
+                    candidate_cds.append({
+                        'frame_i': frame_i,
+                        'start_triplet_i': start_pointer_i,
+                        'stop_triplet_i': stop_pointers[frame_i]
+                    })
+
+        return candidate_cds
+
+
+
 class Frame(object):
     
     def __init__(self):
@@ -385,6 +485,8 @@ class State(object):
         swapidx = np.array(
             [States.ST_TIS, States.ST_TIS_PLUS, States.ST_TTS, States.ST_3PRIME_UTS_MINUS]
         ).astype(np.uint8)
+        # alpha_k(z_k) is P(z_k | x_1:k)
+        # In this case the three frames are three separate HMMs
         self.alpha = np.zeros((3, self.n_triplets, self.n_states), dtype=np.float64)
         self.likelihood = np.zeros((self.n_triplets, 3), dtype=np.float64)
 
@@ -669,7 +771,7 @@ class State(object):
             for triplet_i in range(self.n_triplets - 2, 0, -1):
                 state[triplet_i] = pointer[triplet_i + 1, state[triplet_i + 1]]
             state[0] = pointer[0, 0]
-            self.max_posterior[frame_i] = exp(np.max(alpha) - np.sum(self.likelihood[:, frame_i]))
+            self.max_posterior[frame_i] = np.exp(np.max(alpha) - np.sum(self.likelihood[:, frame_i]))
 
             # identifying start codon position
             # state is 1-dim array of size n_triplets
@@ -1836,7 +1938,8 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
 
     return transition, emission, L
 
-def infer_coding_sequence(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability, transition, emission):
+def infer_coding_sequence(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors,
+                          mappability, transition, emission):
     """
     Inflate serialized transition and emission dictionaries
     """
@@ -1893,4 +1996,247 @@ def infer_coding_sequence(riboseq_footprint_pileups, codon_maps, transcript_norm
         # logger.info('State best stop: {}'.format(pformat(state.best_stop)))
 
     return states, frames
+
+
+def get_triplet_state(triplet_i, start_pos, stop_pos):
+    if triplet_i < start_pos - 1:
+        return States.ST_5PRIME_UTS
+    if triplet_i == start_pos - 1:
+        return States.ST_5PRIME_UTS_PLUS
+    if triplet_i == start_pos:
+        return States.ST_TIS
+    if triplet_i == start_pos + 1:
+        return States.ST_TIS_PLUS
+    if triplet_i == stop_pos - 1:
+        return States.ST_TTS_MINUS
+    if triplet_i == stop_pos:
+        return States.ST_TTS
+    if triplet_i == stop_pos + 1:
+        return States.ST_3PRIME_UTS_MINUS
+    if triplet_i > stop_pos + 1:
+        return States.ST_3PRIME_UTS
+    return States.ST_TES
+
+
+def get_triplet_string(state):
+    if state == States.ST_5PRIME_UTS:
+        return 'ST_5PRIME_UTS'
+    if state == States.ST_5PRIME_UTS_PLUS:
+        return 'ST_5PRIME_UTS_PLUS'
+    if state == States.ST_TIS:
+        return 'ST_TIS'
+    if state == States.ST_TIS_PLUS:
+        return 'ST_TIS_PLUS'
+    if state == States.ST_TES:
+        return 'ST_TES'
+    if state == States.ST_TTS_MINUS:
+        return 'ST_TTS_MINUS'
+    if state == States.ST_TTS:
+        return 'ST_TTS'
+    if state == States.ST_3PRIME_UTS_MINUS:
+        return 'ST_3PRIME_UTS_MINUS'
+    return 'ST_3PRIME_UTS'
+
+
+
+def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability,
+                                transition, emission):
+    emission = {
+        'S': emission['S'],
+        'logperiodicity': np.array(emission['logperiodicity']['data']).reshape(emission['logperiodicity']['shape']),
+        'rescale': np.array(emission['rescale']['data']).reshape(emission['rescale']['shape']),
+        'rate_alpha': np.array(emission['rate_alpha']['data']).reshape(emission['rate_alpha']['shape']),
+        'rate_beta': np.array(emission['rate_beta']['data']).reshape(emission['rate_beta']['shape'])
+    }
+    transition = {
+        'seqparam': {
+            'kozak': np.array(transition['seqparam']['kozak']),
+            'start': np.array(transition['seqparam']['start']),
+            'stop': np.array(transition['seqparam']['stop'])
+        }
+    }
+
+    data = [
+        Data(
+            riboseq_footprint_pileup,
+            codon_map,
+            transcript_normalization_factor,
+            is_pos_mappable
+        )
+        for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable
+        in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability)
+    ]
+
+    discovery_mode_results = list()
+    # For each transcript
+    for riboseq_data in data:
+        riboseq_data.compute_log_probability(emission)
+        state = State(riboseq_data.n_triplets)
+        state._forward_update(data=riboseq_data, transition=transition)
+        orf_errors = [e[1] for e in riboseq_data.compute_observed_pileup_deviation(emission, return_sorted=False)]
+
+        candidate_cds_likelihoods = list()
+        all_candidate_cds = riboseq_data.get_candidate_cds_simple()
+        # For each candidate CDS in this transcript
+        for candidate_cds, orf_emission_error in zip(all_candidate_cds, orf_errors):
+            triplet_likelihoods = list()
+            triplet_alpha_values = list()
+            triplet_state_likelihood_values = list()
+            triplet_states = list()
+            # Get the data log probability for each position in this transcript, with the states defined by
+            # the candidate CDS
+            for triplet_i in range(riboseq_data.log_probability.shape[1]):
+                triplet_state = get_triplet_state(triplet_i, start_pos=candidate_cds.start, stop_pos=candidate_cds.stop)
+                triplet_likelihoods.append(riboseq_data.log_probability[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_alpha_values.append(state.alpha[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_state_likelihood_values.append(state.likelihood[triplet_i, candidate_cds.frame])
+                triplet_states.append(get_triplet_string(triplet_state))
+            # Once each position probability is gathered, add them to a list for this transcript
+
+            candidate_cds_results = {
+                'definition': candidate_cds,
+                'triplet_states': triplet_states,
+                'data_loglikelihood': {'by_pos': triplet_likelihoods, 'sum': np.sum(triplet_likelihoods)},
+                'state_alpha': {'by_pos': triplet_alpha_values, 'sum': np.sum(triplet_alpha_values)},
+                'state_likelihood': {
+                    'by_pos': triplet_state_likelihood_values,
+                    'sum': np.sum(triplet_state_likelihood_values)
+                },
+                'orf_emission_error_mrsme': orf_emission_error
+            }
+            candidate_cds_likelihoods.append(candidate_cds_results)
+
+        state.decode(data=riboseq_data, transition=transition, emission=None, frame=None)
+        discovery_mode_results.append({
+            'candidate_orf': candidate_cds_likelihoods,
+            'decode': {
+                'max_posterior': [utils.MAX if np.isinf(p) else p for p in state.max_posterior],
+                'best_start': [int(b) if b is not None else b for b in state.best_start],
+                'best_stop': [int(b) if b is not None else b for b in state.best_stop]
+            }
+        })
+    return discovery_mode_results
+
+
+# TODO I think above I have all the full likelihoods for each candidate CDS
+#      Need to find a way to look at them and present them well
+#      Also probably need to convert them back from log-form
+
+
+
+"""
+Compare against transcript definition
+Compare against viterbi output
+Get output from state.decode()
+
+To visualize:
+  - look at top for each transcript, bottom for each transcript
+  - go back and look at original data, see if top group shows periodicity
+
+
+I want all the output in this format:
+[
+    {
+        'transcript_info': {'chr': 1, 'start': 100, 'stop': 200},
+        'transcript_string': 'string',
+        'candidate_cds': [{
+            'definition': <CandidateCDS>,
+            'triplet_states': list()
+            'data_loglikelihood': {'by_pos': list(), 'sum': float},
+            'state_alpha': {'by_pos': list(), 'sum': float},
+            'state_likelihood': {'by_pos': list(), 'sum': float}
+        }]
+    },
+    {}
+]
+"""
+
+def discovery_mode(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability,
+                   transition, emission):
+    transition = {
+        'seqparam': {
+            'kozak': np.array(transition['seqparam']['kozak']),
+            'start': np.array(transition['seqparam']['start']),
+            'stop': np.array(transition['seqparam']['stop'])
+        }
+    }
+    # logger.info('Transition parameters: {}'.format(pformat(transition)))
+
+    emission = {
+        'S': emission['S'],
+        'logperiodicity': np.array(emission['logperiodicity']['data']).reshape(emission['logperiodicity']['shape']),
+        'rescale': np.array(emission['rescale']['data']).reshape(emission['rescale']['shape']),
+        'rate_alpha': np.array(emission['rate_alpha']['data']).reshape(emission['rate_alpha']['shape']),
+        'rate_beta': np.array(emission['rate_beta']['data']).reshape(emission['rate_beta']['shape'])
+    }
+
+    data = [
+        Data(
+            riboseq_footprint_pileup,
+            codon_map,
+            transcript_normalization_factor,
+            is_pos_mappable
+        )
+        for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable
+        in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability)
+    ]
+
+    """
+    We want the likelihood of the entire transcript for a given start and stop definition, not just 
+    the likelihood between the start and stop
+    
+    Just looking at the data (compute_log_prob), if we get total likelihood, does it look like an ORF?
+    So just look at compute_data_log, which doesn't include transition parameters
+    
+    Need to incorporate additional position likelihood and frame position in order to compare with 
+    Viterbi
+    
+    Figure out what State.likelihood is about, now that we know more about State.alpha
+    
+    Find out where State.alpha is used, since it isn't used in inference
+    """
+    data_inferences = list()
+    for riboseq_data in data:
+        state = State(riboseq_data.n_triplets)
+        riboseq_data.compute_log_probability(emission)
+        state._forward_update(data=riboseq_data, transition=transition)
+
+        candidate_cds_likelihoods = list()
+        all_candidate_cds = riboseq_data.get_candidate_cds_simple()
+        for candidate_cds in all_candidate_cds:
+            if candidate_cds.stop - candidate_cds.start < 4:
+                continue  # TODO Is this candidate sequence too small?
+            candidate_cds_likelihood = 0
+            pos_state = None
+            for pos_i in range(candidate_cds.start, candidate_cds.stop + 1):
+                if pos_state is None:
+                    pos_state = States.ST_TIS
+                elif pos_state == States.ST_TIS:
+                    pos_state = States.ST_TIS_PLUS
+                elif pos_state == States.ST_TIS_PLUS:
+                    pos_state = States.ST_TES
+                elif pos_i == candidate_cds.stop - 1:
+                    pos_state = States.ST_TTS_MINUS
+                elif pos_i == candidate_cds.stop:
+                    pos_state = States.ST_TTS
+                state_likelihood = state.alpha[candidate_cds.frame, pos_i, pos_state]
+                candidate_cds_likelihood += state_likelihood
+            candidate_cds_likelihoods.append(candidate_cds_likelihood)
+
+        data_inferences.append(sorted(
+            list(zip(all_candidate_cds, candidate_cds_likelihoods)),
+            key=lambda r: r[1],
+            reverse=True
+        ))
+
+
+    """
+    The hidden states are the 9 states
+    The observed states are the triplets
+    The transition matrix and emission matrix are defined
+    """
+
+
+
+
 
