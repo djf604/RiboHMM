@@ -142,7 +142,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
     model_params = json.load(open(model_file))
 
     # load transcripts
-    transcript_names = list(transcript_models.keys())[:100]
+    transcript_names = list(transcript_models.keys())[:20]
     N = len(transcript_names)
     logger.info('Number of transcripts: {}'.format(N))
 
@@ -229,7 +229,8 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                 transcript_normalization_factors=rna_counts,
                 mappability=rna_mappability,
                 transition=model_params['transition'],
-                emission=model_params['emission']
+                emission=model_params['emission'],
+                transcripts=transcripts
             )
             discovery_mod_results_pos = [
                 {
@@ -241,10 +242,65 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                         'length': t.stop - t.start + 1
                     },
                     'transcript_string': str(t.raw_attrs),
+                    'exons': {
+                        'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
+                        'relative': t.exons
+                    },
+                    'riboseq_pileup_counts': {
+                        read_length: list(f[:, read_length_i])
+                        for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
+                    },
                     'results': candidate_cds_likelihoods
                 }
-                for t, candidate_cds_likelihoods in zip(transcripts, pos_data_log_probs)
+                for t, candidate_cds_likelihoods, f in zip(transcripts, pos_data_log_probs, footprint_counts)
             ]
+            # d = discovery_mod_results_pos[0]
+            # print('!!!!!!!!!!!!!!')
+            # print(d['transcript_info'])
+            # exit()
+            # del d['results']
+            # del d['exons']
+
+            def get_debug_object(d):
+                d['results']['candidate_orf'] = d['results']['candidate_orf'][1:2]
+                del d['riboseq_pileup_counts']
+                for c_orf in d['results']['candidate_orf']:
+                    for k in list(c_orf.keys()):
+                        if k != 'orf_emission_error_mrsme':
+                            del c_orf[k]
+                return d
+
+            # d = get_debug_object(d)
+
+
+            def serialize_output(results):
+                if isinstance(results, list):
+                    return [serialize_output(r) for r in results]
+                if isinstance(results, dict):
+                    return {k: serialize_output(v) for k, v in results.items()}
+                if isinstance(results, np.int64):
+                    return int(results)
+                if isinstance(results, np.ndarray):
+                    return list(results)
+                return results
+
+            # d = serialize_output(discovery_mod_results_pos[0])
+            # print('!!!!!!!!!!!!!!')
+            # print(d['transcript_info'])
+            # exit()
+
+            # import pickle
+            # with open('aug24.pkl', 'wb') as out:
+            #     pickle.dump(d, out)
+            # with open('aug24.json', 'w') as out:
+            #     json.dump(pickle.load(open('aug24.pkl', 'rb')), out)
+            # import json
+            # print('Converting to json')
+            # with open('aug24.json', 'w') as out:
+            #     json.dump(serialize_output(d), out)
+            # print('!!!!!!!!!!!!')
+            # # print(d)
+            # exit()
 
 
             # import pickle
@@ -319,7 +375,8 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                 transcript_normalization_factors=rna_counts,
                 mappability=rna_mappability,
                 transition=model_params['transition'],
-                emission=model_params['emission']
+                emission=model_params['emission'],
+                transcripts=transcripts
             )
             discovery_mod_results_neg = [
                 {
@@ -331,9 +388,17 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                         'length': t.stop - t.start + 1
                     },
                     'transcript_string': str(t.raw_attrs),
+                    'exons': {
+                        'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
+                        'relative': t.exons
+                    },
+                    'riboseq_pileup_counts': {
+                        read_length: list(f[:, read_length_i])
+                        for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
+                    },
                     'results': candidate_cds_likelihoods
                 }
-                for t, candidate_cds_likelihoods in zip(transcripts, neg_data_log_probs)
+                for t, candidate_cds_likelihoods, f in zip(transcripts, neg_data_log_probs, footprint_counts)
             ]
 
             # logger.info('Writing out inferred CDS')
@@ -341,8 +406,10 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             #     write_inferred_cds(handle, transcript, state, frame, rna_sequence)
 
     import pickle
-    with open('candidate_orf_errors3.pkl', 'wb') as out:
-        pickle.dump({'pos': discovery_mod_results_pos, 'neg': discovery_mod_results_neg}, out)
+    with open('sept07_sse.json', 'w') as out:
+        json.dump(serialize_output({'pos': discovery_mod_results_pos, 'neg': discovery_mod_results_neg}), out)
+    # with open('aug26.pkl', 'wb') as out:
+    #     pickle.dump({'pos': discovery_mod_results_pos, 'neg': discovery_mod_results_neg}, out)
 
     logger.info('Closing handles')
     handle.close()

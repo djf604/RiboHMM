@@ -15,7 +15,7 @@ from ribohmm.utils import Mappability, States
 from numba import njit, jit
 
 from pprint import pformat
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 import logging
 logger = logging.getLogger('viterbi_log')
 
@@ -331,6 +331,7 @@ class Data:
         orfs_with_errors = list()
         for candidate_orf in self.get_candidate_cds_simple():
             footprint_errors = list()
+            by_triplet_error = dict()
             for footprint_length_i in range(self.n_footprint_lengths):
                 expected = emission['logperiodicity'][footprint_length_i]
                 observed_frame_i = candidate_orf.frame
@@ -360,10 +361,11 @@ class Data:
                     #     print(f'square error: {square_error}')
                     orf_square_error[triplet_i] = square_error
 
-                orf_rmse = np.sqrt(np.sum(orf_square_error[:, :2]) / (self.n_triplets * 2))
+                by_triplet_error[footprint_length_i] = np.sum(orf_square_error, axis=1)
+                orf_rmse = np.sqrt(np.sum(orf_square_error) / (self.n_triplets * 2))
                 footprint_errors.append(orf_rmse)
             orf_error = np.mean(footprint_errors)
-            orfs_with_errors.append((candidate_orf, orf_error))
+            orfs_with_errors.append((candidate_orf, orf_error, by_triplet_error))
 
         if not return_sorted:
             return orfs_with_errors
@@ -2040,7 +2042,7 @@ def get_triplet_string(state):
 
 
 def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability,
-                                transition, emission):
+                                transition, emission, transcripts):
     emission = {
         'S': emission['S'],
         'logperiodicity': np.array(emission['logperiodicity']['data']).reshape(emission['logperiodicity']['shape']),
@@ -2069,20 +2071,52 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
 
     discovery_mode_results = list()
     # For each transcript
-    for riboseq_data in data:
+    for transcript, riboseq_data in zip(transcripts, data):
         riboseq_data.compute_log_probability(emission)
         state = State(riboseq_data.n_triplets)
         state._forward_update(data=riboseq_data, transition=transition)
-        orf_errors = [e[1] for e in riboseq_data.compute_observed_pileup_deviation(emission, return_sorted=False)]
+        emission_errors = riboseq_data.compute_observed_pileup_deviation(emission, return_sorted=False)
+        ORF_EMISSION_ERROR_MEAN = 1
+        ORF_EMISSION_ERROR_BY_TRIPLET_SSE = 2
+
+        # Get absolute positions of triplets within the chromosome
+        triplet_genomic_positions = list()
+        exonic_positions = list()
+        for exon in transcript.exons:
+            exonic_positions.extend(list(range(exon[0], exon[1] + 1)))
+
+        for triplet_i in range(riboseq_data.n_triplets):
+            e = exonic_positions[triplet_i * 3:(triplet_i + 1) * 3]
+            if e[2] - e[0] == 2:
+                e = [e[0], -1, -1]
+            triplet_genomic_positions.append(e)
 
         candidate_cds_likelihoods = list()
         all_candidate_cds = riboseq_data.get_candidate_cds_simple()
         # For each candidate CDS in this transcript
-        for candidate_cds, orf_emission_error in zip(all_candidate_cds, orf_errors):
+        for candidate_cds, orf_emission_error in zip(all_candidate_cds, emission_errors):
             triplet_likelihoods = list()
             triplet_alpha_values = list()
             triplet_state_likelihood_values = list()
             triplet_states = list()
+
+            # Get genomic position of start and stop codons
+            start_genomic_pos = triplet_genomic_positions[candidate_cds.start]
+            stop_genomic_pos = triplet_genomic_positions[candidate_cds.stop]
+            frame_i = candidate_cds.frame
+            if sum(start_genomic_pos[-2:]) == -2:
+                start_genomic_pos = [
+                    start_genomic_pos[0] + frame_i,
+                    start_genomic_pos[0] + frame_i + 1,
+                    start_genomic_pos[0] + frame_i + 2
+                ]
+            if sum(stop_genomic_pos[-2:]) == -2:
+                stop_genomic_pos = [
+                    stop_genomic_pos[0] + frame_i,
+                    stop_genomic_pos[0] + frame_i + 1,
+                    stop_genomic_pos[0] + frame_i + 2
+                ]
+
             # Get the data log probability for each position in this transcript, with the states defined by
             # the candidate CDS
             for triplet_i in range(riboseq_data.log_probability.shape[1]):
@@ -2096,19 +2130,26 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             candidate_cds_results = {
                 'definition': candidate_cds,
                 'triplet_states': triplet_states,
+                'start_codon_genomic_position': start_genomic_pos,
+                'stop_codon_genomic_position': stop_genomic_pos,
                 'data_loglikelihood': {'by_pos': triplet_likelihoods, 'sum': np.sum(triplet_likelihoods)},
                 'state_alpha': {'by_pos': triplet_alpha_values, 'sum': np.sum(triplet_alpha_values)},
                 'state_likelihood': {
                     'by_pos': triplet_state_likelihood_values,
                     'sum': np.sum(triplet_state_likelihood_values)
                 },
-                'orf_emission_error_mrsme': orf_emission_error
+                'orf_emission_error': {
+                    'mean_rmse': orf_emission_error[ORF_EMISSION_ERROR_MEAN],
+                    'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE],
+                    # 'by_triplet_sse': by_triplet_sse
+                }
             }
             candidate_cds_likelihoods.append(candidate_cds_results)
 
         state.decode(data=riboseq_data, transition=transition, emission=None, frame=None)
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
+            'triplet_genomic_positions': triplet_genomic_positions,
             'decode': {
                 'max_posterior': [utils.MAX if np.isinf(p) else p for p in state.max_posterior],
                 'best_start': [int(b) if b is not None else b for b in state.best_start],
