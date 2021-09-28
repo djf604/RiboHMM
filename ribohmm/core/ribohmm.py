@@ -320,6 +320,10 @@ class Data:
             print('Warning: Inf/Nan in extra log likelihood')
             pdb.set_trace()
 
+        # Flip the sign of the data log likelihood
+        self.log_probability = self.log_probability * -1
+        self.extra_log_probability = self.extra_log_probability * -1
+
     def compute_observed_pileup_deviation(self, emission, return_sorted=True):
         """
         For each ORF, for each read length, for the first two base positions in each triplet, computes a
@@ -2084,12 +2088,13 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         exonic_positions = list()
         for exon in transcript.exons:
             exonic_positions.extend(list(range(exon[0], exon[1] + 1)))
+        exonic_positions = np.array(exonic_positions) + transcript.start
 
         for triplet_i in range(riboseq_data.n_triplets):
             e = exonic_positions[triplet_i * 3:(triplet_i + 1) * 3]
             if e[2] - e[0] == 2:
                 e = [e[0], -1, -1]
-            triplet_genomic_positions.append(e)
+            triplet_genomic_positions.append(list(e))
 
         candidate_cds_likelihoods = list()
         all_candidate_cds = riboseq_data.get_candidate_cds_simple()
@@ -2137,10 +2142,10 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                     'sum': np.sum(triplet_likelihoods)
                 },
                 # 'state_alpha': {'by_pos': triplet_alpha_values, 'sum': np.sum(triplet_alpha_values)},
-                # 'state_likelihood': {
-                #     'by_pos': triplet_state_likelihood_values,
-                #     'sum': np.sum(triplet_state_likelihood_values)
-                # },
+                'state_likelihood': {
+                    # 'by_pos': triplet_state_likelihood_values,
+                    'sum': np.sum(triplet_state_likelihood_values)
+                },
                 'orf_emission_error': {
                     'mean_rmse': orf_emission_error[ORF_EMISSION_ERROR_MEAN],
                     # 'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE],
@@ -2149,6 +2154,8 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             }
             candidate_cds_likelihoods.append(candidate_cds_results)
 
+        frame = Frame()
+        frame.update(riboseq_data, state)
         state.decode(data=riboseq_data, transition=transition, emission=None, frame=None)
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
@@ -2157,6 +2164,10 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                 'max_posterior': [utils.MAX if np.isinf(p) else p for p in state.max_posterior],
                 'best_start': [int(b) if b is not None else b for b in state.best_start],
                 'best_stop': [int(b) if b is not None else b for b in state.best_stop]
+            },
+            'final_posterior': {
+                'by_frame': state.max_posterior * frame.posterior,
+                'max_index': np.argmax(state.max_posterior * frame.posterior)
             }
         })
     return discovery_mode_results
