@@ -700,6 +700,7 @@ class State(object):
         pointer = np.zeros((self.n_triplets,self.n_states), dtype=np.uint8)
         pointer[0,0] = np.array([0])
         alpha = np.zeros((self.n_states,), dtype=np.float64)
+        self.decode_alphas = np.zeros((3, self.n_states), dtype=np.float64)
         newalpha = np.zeros((self.n_states,), dtype=np.float64)
         # Most likely hidden state for each triplet
         state = np.zeros((self.n_triplets,), dtype=np.uint8)
@@ -770,6 +771,8 @@ class State(object):
                 for s in range(self.n_states):
                     alpha[s] = newalpha[s] + data.log_probability[frame_i, triplet_i, s]
 
+            self.decode_alphas[frame_i] = alpha
+
             # constructing the MAP state sequence
             # alpha is 1-dim array of size n_states
             state[self.n_triplets - 1] = np.argmax(alpha)
@@ -795,7 +798,8 @@ class State(object):
             except IndexError:
                 self.best_stop.append(None)
 
-        self.alpha = np.empty((1, 1, 1), dtype=np.float64)
+        # To allow us to extract out this function's alpha value
+        # self.alpha = np.empty((1, 1, 1), dtype=np.float64)
         self.pos_cross_moment_start = np.empty((1, 1, 1), dtype=np.float64)
         self.pos_cross_moment_stop = np.empty((1, 1, 1), dtype=np.float64)
         self.pos_first_moment = np.empty((1, 1, 1), dtype=np.float64)
@@ -2127,30 +2131,33 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             for triplet_i in range(riboseq_data.log_probability.shape[1]):
                 triplet_state = get_triplet_state(triplet_i, start_pos=candidate_cds.start, stop_pos=candidate_cds.stop)
                 triplet_likelihoods.append(riboseq_data.log_probability[candidate_cds.frame, triplet_i, triplet_state])
-                # triplet_alpha_values.append(state.alpha[candidate_cds.frame, triplet_i, triplet_state])
-                # triplet_state_likelihood_values.append(state.likelihood[triplet_i, candidate_cds.frame])
+                triplet_alpha_values.append(state.alpha[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_state_likelihood_values.append(state.likelihood[triplet_i, candidate_cds.frame])
                 # triplet_states.append(get_triplet_string(triplet_state))
             # Once each position probability is gathered, add them to a list for this transcript
 
             candidate_cds_results = {
                 'definition': candidate_cds,
-                # 'triplet_states': triplet_states,
+                'triplet_states': triplet_states,
                 'start_codon_genomic_position': start_genomic_pos,
                 'stop_codon_genomic_position': stop_genomic_pos,
                 'data_loglikelihood': {
-                    # 'by_pos': triplet_likelihoods,
+                    'by_pos': triplet_likelihoods,
                     'sum': np.sum(triplet_likelihoods)
                 },
-                # 'state_alpha': {'by_pos': triplet_alpha_values, 'sum': np.sum(triplet_alpha_values)},
+                'state_alpha': {
+                    'by_pos': triplet_alpha_values,
+                    'sum': np.sum(triplet_alpha_values)
+                },
                 'state_likelihood': {
-                    # 'by_pos': triplet_state_likelihood_values,
+                    'by_pos': triplet_state_likelihood_values,
                     'sum': np.sum(triplet_state_likelihood_values)
                 },
-                'orf_emission_error': {
-                    'mean_rmse': orf_emission_error[ORF_EMISSION_ERROR_MEAN],
+                # 'orf_emission_error': {
+                    # 'mean_rmse': orf_emission_error[ORF_EMISSION_ERROR_MEAN],
                     # 'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE],
                     # 'by_triplet_sse': by_triplet_sse
-                }
+                # }
             }
             candidate_cds_likelihoods.append(candidate_cds_results)
 
@@ -2159,6 +2166,9 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         state.decode(data=riboseq_data, transition=transition, emission=None, frame=None)
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
+            'data_logprob_full': riboseq_data.log_probability.tolist(),
+            'state_alpha_full': state.alpha.tolist(),
+            'state_decode_alphas': state.decode_alphas.tolist(),
             # 'triplet_genomic_positions': triplet_genomic_positions,
             'decode': {
                 'max_posterior': [utils.MAX if np.isinf(p) else p for p in state.max_posterior],

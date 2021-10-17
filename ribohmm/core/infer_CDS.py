@@ -142,7 +142,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
     model_params = json.load(open(model_file))
 
     # load transcripts
-    transcript_names = list(transcript_models.keys())[:100]
+    transcript_names = list(transcript_models.keys())[:10]
     N = len(transcript_names)
     logger.info('Number of transcripts: {}'.format(N))
 
@@ -406,8 +406,9 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             #     write_inferred_cds(handle, transcript, state, frame, rna_sequence)
 
     import pickle
-    with open('sept20.json', 'w') as out:
-        json.dump(serialize_output({'pos': discovery_mod_results_pos, 'neg': discovery_mod_results_neg}), out)
+    with open('oct11.json', 'w') as out:
+        # json.dump(serialize_output({'pos': discovery_mod_results_pos, 'neg': discovery_mod_results_neg}), out)
+        json.dump(serialize_output({'pos': discovery_mod_results_pos[:1], 'neg': list()}), out)
     # with open('aug26.pkl', 'wb') as out:
     #     pickle.dump({'pos': discovery_mod_results_pos, 'neg': discovery_mod_results_neg}, out)
 
