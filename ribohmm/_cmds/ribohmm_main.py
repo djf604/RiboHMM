@@ -204,19 +204,6 @@ def execute_ribohmm(args, learn=True, infer=True):
         raise ValueError('Path to kozak model ({}) is invalid'.format(args['kozak_model']))
     inflate_kozak_model(args['kozak_model'])
 
-    # Verify or generate BAM file indices
-    # if not args['riboseq_bam_index'] or not os.path.isfile(args['riboseq_bam_index']):
-    #     if not os.path.isfile(args['riboseq_bam'] + '.bai'):
-    #         print('Generating index for {}'.format(args['riboseq_bam']))
-    #         pysam.index(args['riboseq_bam'])
-    # if args['rnaseq_bam'] and (not args['rnaseq_bam_index'] or not os.path.isfile(args['rnaseq_bam_index'])):
-    #     if not os.path.isfile(args['rnaseq_bam'] + '.bai'):
-    #         print('Generating index for {}'.format(args['rnaseq_bam']))
-    #         pysam.index(args['rnaseq_bam'])
-
-    # Convert riboseq BAM to tabix
-    # start = time.time()
-
     riboseq_counts_bed = convert_bams_to_bed(
         bam_files=args['riboseq_bams'],
         output_prefix=os.path.join(
@@ -228,15 +215,6 @@ def execute_ribohmm(args, learn=True, infer=True):
         tabix_path=tabix_path
     ) if args['riboseq_bams'] else args['riboseq_counts_tabix']
     # Or from the command line arguments
-
-    # riboseq_tabix_prefix = convert_riboseq(
-    #     bam_file=args['riboseq_bams'],
-    #     output_directory=args['output_directory'],
-    #     bgzip_path=bgzip_path,
-    #     tabix_path=tabix_path,
-    #     read_lengths=args['read_lengths']
-    # )
-    # logger.debug('convert_riboseq_to_tabix:{}'.format(time.time() - start))
 
     # Convert RNAseq BAM to tabix
     rnaseq_counts_bed = args['rnaseq_counts_tabix']
@@ -252,30 +230,6 @@ def execute_ribohmm(args, learn=True, infer=True):
             bgzip_path=bgzip_path,
             tabix_path=tabix_path
         )
-        # logger.debug('convert_rnaseq_to_tabix:{}'.format(time.time() - start))
-
-    # # Convert riboseq BAM to tabix
-    # start = time.time()
-    # riboseq_tabix_prefix = convert_riboseq(
-    #     bam_file=args['riboseq_bam'],
-    #     output_directory=args['output_directory'],
-    #     bgzip_path=bgzip_path,
-    #     tabix_path=tabix_path,
-    #     read_lengths=args['read_lengths']
-    # )
-    # logger.debug('convert_riboseq_to_tabix:{}'.format(time.time() - start))
-    #
-    # # Convert RNAseq BAM to tabix
-    # rnaseq_tabix = None
-    # if args['rnaseq_bam']:
-    #     start = time.time()
-    #     rnaseq_tabix = convert_rnaseq(
-    #         bam_file=args['rnaseq_bam'],
-    #         output_directory=args['output_directory'],
-    #         bgzip_path=bgzip_path,
-    #         tabix_path=tabix_path
-    #     )
-    #     logger.debug('convert_rnaseq_to_tabix:{}'.format(time.time() - start))
 
 
     # Generate major objects once

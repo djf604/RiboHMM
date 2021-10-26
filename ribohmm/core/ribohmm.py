@@ -321,8 +321,8 @@ class Data:
             pdb.set_trace()
 
         # Flip the sign of the data log likelihood
-        self.log_probability = self.log_probability * -1
-        self.extra_log_probability = self.extra_log_probability * -1
+        # self.log_probability = np.log(1 - np.exp(self.log_probability))
+        # self.extra_log_probability = np.log(1 - np.exp(self.extra_log_probability))
 
     def compute_observed_pileup_deviation(self, emission, return_sorted=True):
         """
@@ -583,9 +583,9 @@ class State(object):
 
                 self.likelihood[triplet_i, frame_i] = normalized_new_alpha
 
-        if np.isnan(self.alpha).any() or np.isinf(self.alpha).any():
-            print('Warning: Inf/Nan in forward update step')
-            pdb.set_trace()
+        # if np.isnan(self.alpha).any() or np.isinf(self.alpha).any():
+        #     print('Warning: Inf/Nan in forward update step')
+        #     pdb.set_trace()
 
     # @cython.boundscheck(False)
     # @cython.wraparound(False)
