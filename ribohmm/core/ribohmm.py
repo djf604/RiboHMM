@@ -67,6 +67,186 @@ def outsum(arr):
     # cdef np.ndarray thesum
     return sum([a for a in arr])
 
+
+class DataOld:
+    def __init__(self, obs, codon_id, scale,  missing):
+
+        self.L = obs.shape[0]
+        self.M = int(self.L/3)-1
+        self.R = obs.shape[1]
+        self.obs = obs
+        self.scale = scale
+        self.missing = missing
+        self.codon_id = codon_id
+        self.indices = [[[np.empty((1,), dtype=np.uint64) \
+            for s in range(9)] for r in range(4)] for f in range(3)]
+        self.total = np.empty((3,self.M,self.R), dtype=np.uint64)
+        for f in range(3):
+            for r in range(self.R):
+                for m in range(self.M):
+                    """
+                    This only gets the total count per triplet
+                    """
+                    self.total[f,m,r] = self.obs[3*m+f:3*m+3+f,r].sum()
+
+    def compute_log_likelihood(self, emission):
+
+        # cdef long r, f, m, l
+        # cdef np.ndarray[np.float64_t, ndim=2] log_likelihood, rate_log_likelihood
+        # cdef np.ndarray[np.uint64_t, ndim=2] count_data
+        # cdef np.ndarray[np.int64_t, ndim=1] missing
+
+        self.log_likelihood = np.zeros((3, self.M, emission['S']), dtype=np.float64)
+        self.extra_log_likelihood = np.zeros((3,), dtype=np.float64)
+
+        for f in range(3):
+
+            for r in range(self.R):
+
+                log_likelihood = np.zeros((self.M,emission['S']), dtype=np.float64)
+
+                # periodicity likelihood
+                count_data = np.array([self.obs[3*m+f:3*m+3+f,r] for m in range(self.M)]).astype(np.uint64)
+                log_likelihood += (np.dot(
+                    count_data,
+                    # I added the .T below to make the matrix algebra work; it's possible in the old version the
+                    # emission values were flipped; it's also possible this will mess everything up
+                    emission['logperiodicity'][r].T
+                )
+                + gammaln(self.total[f,:,r:r+1]+1)
+                - utils.insum(gammaln(count_data+1),[1])
+               )
+
+                if emission['start']=='noncanonical':
+                    # abundance likelihood
+                    rate_log_likelihood = (
+                        emission['rate_alpha'][r]  # A
+                        * emission['rate_beta'][r]  # B
+                        * utils.nplog(emission['rate_beta'][r])  # C
+                        - (emission['rate_alpha'][r]*emission['rate_beta'][r]+self.total[f,:,r:r+1])  # D
+                        * utils.nplog(emission['rate_beta'][r] + self.scale)  # E
+                        + gammaln(emission['rate_alpha'][r]*emission['rate_beta'][r]+self.total[f,:,r:r+1])  # F
+                        - gammaln(emission['rate_alpha'][r]*emission['rate_beta'][r])  # G
+                        + self.total[f,:,r:r+1]  # H
+                        * utils.nplog(self.scale)  # I
+                        - gammaln(self.total[f,:,r:r+1]+1)  # J
+                    )
+                    log_likelihood += rate_log_likelihood
+
+                    # likelihood of extra positions
+                    for l in range(f):
+                        if not self.missing[l,r]:
+                            self.extra_log_likelihood[f] += (
+                                emission['rate_alpha'][r,0]
+                                * emission['rate_beta'][r,0]
+                                * utils.nplog(emission['rate_beta'][r,0])
+                                - (emission['rate_alpha'][r,0]*emission['rate_beta'][r,0]+self.obs[l,r])
+                                * utils.nplog(emission['rate_beta'][r,0]+self.scale/3.)
+                                + gammaln(emission['rate_alpha'][r,0]*emission['rate_beta'][r,0]+self.obs[l,r])
+                                - gammaln(emission['rate_alpha'][r,0]*emission['rate_beta'][r,0])
+                                + self.obs[l,r]*utils.nplog(self.scale/3.)
+                                - gammaln(self.obs[l,r]+1)
+                            )
+                    for l in range(3*self.M+f, self.L):
+                        if not self.missing[l,r]:
+                            self.extra_log_likelihood[f] += (
+                                emission['rate_alpha'][r,emission['S']-1]
+                                * emission['rate_beta'][r,emission['S']-1]
+                                * utils.nplog(emission['rate_beta'][r,emission['S']-1])
+                                - (emission['rate_alpha'][r,emission['S']-1]*emission['rate_beta'][r,emission['S']-1]+ self.obs[l,r])
+                                * utils.nplog(emission['rate_beta'][r,emission['S']-1]+self.scale/3.)
+                                + gammaln(emission['rate_alpha'][r,emission['S']-1]*emission['rate_beta'][r,emission['S']-1]+self.obs[l,r])
+                                - gammaln(emission['rate_alpha'][r,emission['S']-1]*emission['rate_beta'][r,emission['S']-1])
+                                + self.obs[l,r]*utils.nplog(self.scale/3.)
+                                - gammaln(self.obs[l,r]+1)
+                            )
+
+                # account for mappability in main positions
+                missing = np.array([m for m in range(self.M) if np.any(self.missing[3*m+f:3*m+3+f,r])]).astype(np.int64)
+                log_likelihood[missing,:] = 0
+
+                self.log_likelihood[f] += log_likelihood
+   
+        if np.isnan(self.log_likelihood).any() \
+        or np.isinf(self.log_likelihood).any():
+            print("Warning: Inf/Nan in data log likelihood")
+            pdb.set_trace()
+
+        if np.isnan(self.extra_log_likelihood).any() \
+        or np.isinf(self.extra_log_likelihood).any():
+            print("Warning: Inf/Nan in extra log likelihood")
+            pdb.set_trace()
+
+    def compute_observed_pileup_deviation(self, emission, return_sorted=True):
+        """
+        For each ORF, for each read length, for the first two base positions in each triplet, computes a
+        difference between observed and expected pileup
+        :param candidate_orfs:
+        :param emission:
+        :return:
+        """
+        orfs_with_errors = list()
+        for candidate_orf in self.get_candidate_cds_simple():
+            footprint_errors = list()
+            by_triplet_error = dict()
+            for footprint_length_i in range(self.R):
+                expected = emission['logperiodicity'][footprint_length_i]
+                observed_frame_i = candidate_orf.frame
+                observed_start = candidate_orf.start
+                observed_stop = candidate_orf.stop
+
+                orf_square_error = np.zeros(shape=(self.M, 3))
+                for triplet_i in range(self.M):
+                    triplet_state = get_triplet_state(triplet_i, start_pos=observed_start, stop_pos=observed_stop)
+                    state_expected = np.exp(expected[triplet_state])
+
+                    # Get observed pileup proportions
+                    triplet_positions = slice(triplet_i * 3 + observed_frame_i, 3 * triplet_i + observed_frame_i + 3)
+                    triplet_pileups = self.obs[triplet_positions, footprint_length_i]
+                    if triplet_pileups.sum() == 0:
+                        triplet_proportions = np.ones(3) / 3  # TODO Should this be all 0s?
+                    else:
+                        triplet_proportions = triplet_pileups / triplet_pileups.sum()
+                    square_error = (triplet_proportions - state_expected) ** 2
+                    # import random
+                    # if random.random() < 0.01:
+                    #     print('######')
+                    #     print(f'Triplet_state: {triplet_state}')
+                    #     print(f'Expected proportion: {state_expected}')
+                    #     print(f'triplet pileups: {triplet_pileups}')
+                    #     print(f'triplet_proportion: {triplet_proportions}')
+                    #     print(f'square error: {square_error}')
+                    orf_square_error[triplet_i] = square_error
+
+                by_triplet_error[footprint_length_i] = np.sum(orf_square_error, axis=1)
+                orf_rmse = np.sqrt(np.sum(orf_square_error) / (self.M * 2))
+                footprint_errors.append(orf_rmse)
+            orf_error = np.mean(footprint_errors)
+            orfs_with_errors.append((candidate_orf, orf_error, by_triplet_error))
+
+        if not return_sorted:
+            return orfs_with_errors
+        return sorted(orfs_with_errors, key=lambda r: r[1])
+
+    def get_candidate_cds_simple(self):
+        N_FRAMES = 3
+        n_triplets = self.codon_id['start'].shape[0]
+        candidate_cds = list()
+
+        for pos_i in range(n_triplets):
+            for frame_i in range(N_FRAMES):
+                if self.codon_id['start'][pos_i, frame_i] > 0:
+                    for stop_i in range(pos_i, n_triplets):
+                        if self.codon_id['stop'][stop_i, frame_i] > 0:
+                            candidate_cds.append(CandidateCDS(
+                                frame=frame_i,
+                                start=pos_i,
+                                stop=stop_i
+                            ))
+                            break
+
+        return candidate_cds
+
 class Data:
     CandidateCDS = namedtuple('CandidateCDS', 'frame_i start_triplet_i stop_triplet_i'.split())
 
@@ -161,11 +341,6 @@ class Data:
                            .reshape(self.n_triplets, 3), axis=1)
                 )
 
-    # @cython.boundscheck(False)
-    # @cython.wraparound(False)
-    # @cython.nonecheck(False)
-    # cdef compute_log_probability(self, Emission emission):
-#     # @njit
     def compute_log_probability(self, emission):
         """Computes the log probability of the data given model parameters.
            Log probability of data is the sum of log probability at positions
@@ -323,6 +498,89 @@ class Data:
         # Flip the sign of the data log likelihood
         # self.log_probability = np.log(1 - np.exp(self.log_probability))
         # self.extra_log_probability = np.log(1 - np.exp(self.extra_log_probability))
+    
+    def compute_log_probability_(self, emission):
+        self.log_likelihood = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
+        self.extra_log_likelihood = np.zeros((3,), dtype=np.float64)
+        self.missing = ~self.is_pos_mappable
+
+        for f in range(3):
+            for r in range(self.n_footprint_lengths):
+
+                log_likelihood = np.zeros((self.n_triplets,emission['S']), dtype=np.float64)
+
+                # periodicity likelihood
+                count_data = np.array([self.riboseq_pileup[3*m+f:3*m+3+f,r] for m in range(self.n_triplets)]).astype(np.uint64)
+                log_likelihood += np.dot(
+                    count_data,
+                    emission['logperiodicity'][r]
+                ) + gammaln(self.total_pileup[f,:,r:r+1]+1) - utils.insum(gammaln(count_data+1),[1])
+
+                # if emission.start=='noncanonical':  """Unique"""
+                if True:
+                    # abundance likelihood
+                    rate_log_likelihood = (
+                        emission['rate_alpha'][r]  # A
+                        * emission['rate_beta'][r]  # B
+                        * utils.nplog(emission['rate_beta'][r])  # C
+                        - (emission['rate_alpha'][r]*emission['rate_beta'][r]+self.total_pileup[f,:,r:r+1])  # D
+                        * utils.nplog(emission['rate_beta'][r] + self.transcript_normalization_factor)  # E
+                        + gammaln(emission['rate_alpha'][r]*emission['rate_beta'][r]+self.total_pileup[f,:,r:r+1])  # F
+                        - gammaln(emission['rate_alpha'][r]*emission['rate_beta'][r])  # G
+                        + self.total_pileup[f,:,r:r+1]  # H
+                        * utils.nplog(self.transcript_normalization_factor)  # I
+                        - gammaln(self.total_pileup[f,:,r:r+1]+1)  # J
+                    )
+                    log_likelihood += rate_log_likelihood
+
+                    # likelihood of extra positions
+                    for l in range(f):
+                        if not self.missing[l,r]:
+                            self.extra_log_likelihood[f] += (
+                                emission['rate_alpha'][r,0]
+                                * emission['rate_beta'][r,0]
+                                * utils.nplog(emission['rate_beta'][r,0])
+                                - (emission['rate_alpha'][r,0]*emission['rate_beta'][r,0]+self.riboseq_pileup[l,r])
+                                * utils.nplog(emission['rate_beta'][r,0]+self.transcript_normalization_factor/3.)
+                                + gammaln(emission['rate_alpha'][r,0]*emission['rate_beta'][r,0]+self.riboseq_pileup[l,r])
+                                - gammaln(emission['rate_alpha'][r,0]*emission['rate_beta'][r,0])
+                                + self.riboseq_pileup[l,r]*utils.nplog(self.transcript_normalization_factor/3.)
+                                - gammaln(self.riboseq_pileup[l,r]+1)
+                            )
+
+                    for l in range(3 * self.n_triplets + f, self.transcript_length):
+                        if not self.missing[l,r]:
+                            self.extra_log_likelihood[f] += (
+                                emission['rate_alpha'][r,emission['S']-1]
+                                * emission['rate_beta'][r,emission['S']-1]
+                                * utils.nplog(emission['rate_beta'][r,emission['S']-1])
+                                - (emission['rate_alpha'][r,emission['S']-1]*emission['rate_beta'][r,emission['S']-1]+ self.riboseq_pileup[l,r])
+                                * utils.nplog(emission['rate_beta'][r,emission['S']-1]+self.transcript_normalization_factor/3.)
+                                + gammaln(emission['rate_alpha'][r,emission['S']-1]*emission['rate_beta'][r,emission['S']-1]+self.riboseq_pileup[l,r])
+                                - gammaln(emission['rate_alpha'][r,emission['S']-1]*emission['rate_beta'][r,emission['S']-1])
+                                + self.riboseq_pileup[l,r]*utils.nplog(self.transcript_normalization_factor/3.)
+                                - gammaln(self.riboseq_pileup[l,r]+1)
+                            )
+
+                # account for mappability in main positions
+                missing = np.array([m for m in range(self.n_triplets) if np.any(self.missing[3*m+f:3*m+3+f,r])]).astype(np.int64)
+                log_likelihood[missing,:] = 0
+
+                self.log_likelihood[f] += log_likelihood
+
+        self.log_probability = self.log_likelihood
+        self.extra_log_probability = self.extra_log_likelihood
+
+   
+        # if np.isnan(self.log_likelihood).any() \
+        # or np.isinf(self.log_likelihood).any():
+        #     print("Warning: Inf/Nan in data log likelihood")
+        #     pdb.set_trace()
+        #
+        # if np.isnan(self.extra_log_likelihood).any() \
+        # or np.isinf(self.extra_log_likelihood).any():
+        #     print("Warning: Inf/Nan in extra log likelihood")
+        #     pdb.set_trace()
 
     def compute_observed_pileup_deviation(self, emission, return_sorted=True):
         """
@@ -394,33 +652,6 @@ class Data:
 
         return candidate_cds
 
-    def get_candidate_cds(self):
-        """
-        Return a list of candidate CDS
-        :return:
-        """
-        N_FRAMES = 3
-
-        candidate_cds = list()
-
-        # Get the first occurrence of a stop codon for each frame
-        stop_pointers = (self.codon_map['stop'] > 0).argmax(axis=0)
-
-        for start_pointer_i in range(self.n_triplets):
-            if np.any(start_pointer_i >= stop_pointers):
-
-                pass  # TODO Move stop pointers
-            for frame_i, is_start_codon in enumerate(self.codon_map['start'][start_pointer_i]):
-                if is_start_codon:
-                    candidate_cds.append({
-                        'frame_i': frame_i,
-                        'start_triplet_i': start_pointer_i,
-                        'stop_triplet_i': stop_pointers[frame_i]
-                    })
-
-        return candidate_cds
-
-
 
 class Frame(object):
     
@@ -449,7 +680,8 @@ class Frame(object):
 
         """
 
-        self.posterior = outsum(state.likelihood) + data.extra_log_probability
+        # self.posterior = outsum(state.likelihood) + data.extra_log_probability
+        self.posterior = outsum(state.likelihood) + data.extra_log_likelihood
         self.posterior = self.posterior - self.posterior.max()
         self.posterior = np.exp(self.posterior)
         self.posterior = self.posterior / self.posterior.sum()
@@ -461,6 +693,191 @@ def rebuild_Frame(pos):
     f = Frame()
     f.posterior = pos
     return f
+
+
+class StateOld:
+    def __init__(self, M):
+
+        self.M = M
+        self.S = 9
+        self.best_start = []
+        self.best_stop = []
+        self.max_posterior = np.empty((3,), dtype=np.float64)
+
+    def _forward_update(self, data, transition):
+        logprior = utils.nplog([1,0,0,0,0,0,0,0,0])
+        swapidx = np.array([2,3,6,7]).astype(np.uint8)
+        self.alpha = np.empty((3,self.M,self.S), dtype=np.float64)
+        self.likelihood = np.empty((self.M,3), dtype=np.float64)
+        newalpha = np.empty((self.S,), dtype=np.float64)
+
+        if transition['start'] == 'canonical':
+            P = logistic(-1 * transition['seqparam']['start'][data.codon_id['start']])
+        else:
+            P = logistic(-1 * (transition['seqparam']['kozak'] * data.codon_id['kozak'] + transition['seqparam']['start'][
+                data.codon_id['start']]))
+        Q = logistic(-1 * transition['seqparam']['stop'][data.codon_id['stop']])
+
+        for f in range(3):
+
+            newalpha = logprior + data.log_likelihood[f,0,:]
+            L = normalize(newalpha)
+            for s in range(self.S):
+                self.alpha[f,0,s] = newalpha[s] - L
+            self.likelihood[0,f] = L
+
+            for m in range(1, self.M):
+
+                # other states
+                for s in swapidx:
+                    newalpha[s] = self.alpha[f,m-1,s-1] + data.log_likelihood[f,m,s]
+
+                # state 0,1
+                try:
+                    p = self.alpha[f,m-1,0] + log(1-P[m,f])
+                    q = self.alpha[f,m-1,0] + log(P[m,f])
+                except ValueError:
+                    if P[m,f]==0.0:
+                        p = self.alpha[f,m-1,0]
+                        q = utils.MIN
+                    else:
+                        p = utils.MIN
+                        q = self.alpha[f,m-1,0]
+                newalpha[0] = p + data.log_likelihood[f,m,0]
+                newalpha[1] = q + data.log_likelihood[f,m,1]
+
+                # state 4
+                p = self.alpha[f,m-1,3]
+                try:
+                    q = self.alpha[f,m-1,4] + log(1-Q[m,f])
+                except ValueError:
+                    q = utils.MIN
+                if p>q:
+                    newalpha[4] = log(1+exp(q-p)) + p + data.log_likelihood[f,m,4]
+                else:
+                    newalpha[4] = log(1+exp(p-q)) + q + data.log_likelihood[f,m,4]
+
+                # state 5
+                try:
+                    newalpha[5] = self.alpha[f,m-1,4] + log(Q[m,f]) + data.log_likelihood[f,m,5]
+                except ValueError:
+                    newalpha[5] = utils.MIN
+
+                # state 8
+                p = self.alpha[f,m-1,7]
+                q = self.alpha[f,m-1,8]
+                if p>q:
+                    newalpha[8] = log(1+exp(q-p)) + p + data.log_likelihood[f,m,8]
+                else:
+                    newalpha[8] = log(1+exp(p-q)) + q + data.log_likelihood[f,m,8]
+
+                L = normalize(newalpha)
+                for s in range(self.S):
+                    self.alpha[f,m,s] = newalpha[s] - L
+
+                self.likelihood[m,f] = L
+
+        if np.isnan(self.alpha).any() or np.isinf(self.alpha).any():
+            print("Warning: Inf/Nan in forward update step")
+            pdb.set_trace()
+
+
+    def decode(self, data, transition, emission, frame):
+
+        P = logistic(-1 * (transition['seqparam']['kozak'] * data.codon_id['kozak'] + transition['seqparam']['start'][
+            data.codon_id['start']]))
+        Q = logistic(-1 * transition['seqparam']['stop'][data.codon_id['stop']])
+
+        logprior = utils.nplog([1,0,0,0,0,0,0,0,0])
+        swapidx = np.array([2,3,6,7]).astype(np.uint8)
+        pointer = np.empty((self.M,self.S), dtype=np.uint8)
+        pointer[0,0] = np.array([0])
+        alpha = np.empty((self.S,), dtype=np.float64)
+        newalpha = np.empty((self.S,), dtype=np.float64)
+        state = np.zeros((self.M,), dtype=np.uint8)
+
+        for f in range(3):
+
+            # find the state sequence with highest posterior
+            alpha = logprior + data.log_likelihood[f,0,:]
+
+            for m in range(1, self.M):
+
+                # other states
+                for s in swapidx:
+                    newalpha[s] = alpha[s-1]
+                    pointer[m,s] = s-1
+
+                # state 0,1
+                try:
+                    p = alpha[0] + log(1-P[m,f])
+                    q = alpha[0] + log(P[m,f])
+                except ValueError:
+                    if P[m,f]==0.0:
+                        p = alpha[0]
+                        q = utils.MIN
+                    else:
+                        p = utils.MIN
+                        q = alpha[0]
+                pointer[m,0] = 0
+                newalpha[0] = p
+                pointer[m,1] = 0
+                newalpha[1] = q
+
+                # state 4
+                p = alpha[3]
+                try:
+                    q = alpha[4] + log(1-Q[m,f])
+                except ValueError:
+                    q = utils.MIN
+                if p>=q:
+                    newalpha[4] = p
+                    pointer[m,4] = 3
+                else:
+                    newalpha[4] = q
+                    pointer[m,4] = 4
+
+                # state 5
+                try:
+                    newalpha[5] = alpha[4] + log(Q[m,f])
+                except ValueError:
+                    newalpha[5] = utils.MIN
+                pointer[m,5] = 4
+
+                # state 8
+                p = alpha[7]
+                q = alpha[8]
+                if p>=q:
+                    newalpha[8] = p
+                    pointer[m,8] = 7
+                else:
+                    newalpha[8] = q
+                    pointer[m,8] = 8
+
+                for s in range(self.S):
+                    alpha[s] = newalpha[s] + data.log_likelihood[f,m,s]
+
+            state[self.M-1] = np.argmax(alpha)
+            for m in range(self.M-2,0,-1):
+                state[m] = pointer[m+1,state[m+1]]
+            state[0] = pointer[0,0]
+            try:
+                self.best_start.append(np.where(state==2)[0][0]*3+f)
+            except IndexError:
+                self.best_start.append(None)
+            try:
+                self.best_stop.append(np.where(state==7)[0][0]*3+f)
+            except IndexError:
+                self.best_stop.append(None)
+            self.max_posterior[f] = exp(np.max(alpha) - np.sum(self.likelihood[:,f]))
+
+        self.alpha = np.empty((1,1,1), dtype=np.float64)
+        self.pos_cross_moment_start = np.empty((1,1,1), dtype=np.float64)
+        self.pos_cross_moment_stop = np.empty((1,1,1), dtype=np.float64)
+        self.pos_first_moment = np.empty((1,1,1), dtype=np.float64)
+        self.likelihood = np.empty((1,1), dtype=np.float64)
+
+
 
 class State(object):
     
@@ -677,11 +1094,6 @@ class State(object):
             print('Warning: Inf/Nan in start cross moment')
             pdb.set_trace()
 
-    # @cython.boundscheck(False)
-    # @cython.wraparound(False)
-    # @cython.nonecheck(False)
-    # cdef decode(self, Data data, Transition transition, Emission emission, Frame frame):
-    # @njit
     def decode(self, data, transition, emission, frame):
 
         # cdef long f, s, m
@@ -696,9 +1108,11 @@ class State(object):
         Q = logistic(-1*transition['seqparam']['stop'][data.codon_map['stop']])
 
         logprior = utils.nplog([1, 0, 0, 0, 0, 0, 0, 0, 0])
-        swapidx = np.array([2,3,6,7]).astype(np.uint8)
-        pointer = np.zeros((self.n_triplets,self.n_states), dtype=np.uint8)
-        pointer[0,0] = np.array([0])
+        swapidx = np.array(
+            [States.ST_TIS, States.ST_TIS_PLUS, States.ST_TTS, States.ST_3PRIME_UTS_MINUS]
+        ).astype(np.uint8)
+        pointer = np.zeros((self.n_triplets, self.n_states), dtype=np.uint8)
+        pointer[0, 0] = np.array([0])
         alpha = np.zeros((self.n_states,), dtype=np.float64)
         self.decode_alphas = np.zeros((3, self.n_states), dtype=np.float64)
         newalpha = np.zeros((self.n_states,), dtype=np.float64)
@@ -707,6 +1121,7 @@ class State(object):
 
         # for f from 0 <= f < 3:
         for frame_i in range(3):
+            print(f'Looking at frame {frame_i}')
 
             # find the state sequence with highest posterior
             # data.log_probability is (frame_i, triplet_i, state_i)
@@ -778,9 +1193,25 @@ class State(object):
             state[self.n_triplets - 1] = np.argmax(alpha)
             # Start on the second-to-last triplet, then count backward to the first triplet
             for triplet_i in range(self.n_triplets - 2, 0, -1):
-                state[triplet_i] = pointer[triplet_i + 1, state[triplet_i + 1]]
+                # Previous state in the sense that it was the last calculated state
+                # Since we're going backward, this is technically the next state in the sequence
+                prev_state = state[triplet_i + 1]
+
+                # Get the most likely state of this triplet
+                state[triplet_i] = pointer[triplet_i + 1, prev_state]
             state[0] = pointer[0, 0]
+
+            # Calculate the max posterior using the HMM definition
+            # max_post = 0
+            # for triplet_i, state_ in enumerate(state):
+            #     max_post += data.log_probability[frame_i, triplet_i, state_]
+            # max_post = np.exp(max_post)
             self.max_posterior[frame_i] = np.exp(np.max(alpha) - np.sum(self.likelihood[:, frame_i]))
+            # print(f'({max_post}|{self.max_posterior[frame_i]})')
+            # print(np.max(alpha) - np.sum(self.likelihood[:, frame_i]))
+            # print(alpha)
+            # print(np.max(alpha))
+            # print(np.sum(self.likelihood[:, frame_i]))
 
             # identifying start codon position
             # state is 1-dim array of size n_triplets
@@ -848,11 +1279,6 @@ class State(object):
 
         return joint_probability
 
-    # @cython.boundscheck(False)
-    # @cython.wraparound(False)
-    # @cython.nonecheck(False)
-    # cdef double compute_posterior(self, Data data, Transition transition, long start, long stop):
-    # @njit
     def compute_posterior(self, data, transition, start, stop):
 
         # cdef long frame
@@ -1608,12 +2034,6 @@ def optimize_alpha(x_init, data, states, frames, rescale, beta):
 
     return x_final, optimized
 
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# @cython.nonecheck(False)
-# cdef tuple alpha_func_grad(np.ndarray[np.float64_t, ndim=2] x, list data, list states, list frames,
-#                            np.ndarray[np.float64_t, ndim=3] rescale, np.ndarray[np.float64_t, ndim=2] beta):
-# @njit
 def alpha_func_grad(x, data, states, frames, rescale, beta):
 
     # cdef Data datum
@@ -1681,12 +2101,6 @@ def alpha_func_grad(x, data, states, frames, rescale, beta):
 
     return func, gradient
 
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# @cython.nonecheck(False)
-# cdef tuple alpha_func_grad_hess(np.ndarray[np.float64_t, ndim=2] x, list data, list states, list frames,
-#                                 np.ndarray[np.float64_t, ndim=3] rescale, np.ndarray[np.float64_t, ndim=2] beta):
-# @njit
 def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
 
     # cdef Data datum
@@ -1766,7 +2180,6 @@ def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
 
     return func, gradient, hessian
 
-# # @njit
 def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mintol, read_lengths):
 
     # cdef long restart, i, D
@@ -2052,6 +2465,7 @@ def get_triplet_string(state):
 def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability,
                                 transition, emission, transcripts):
     emission = {
+        'start': 'noncanonical',
         'S': emission['S'],
         'logperiodicity': np.array(emission['logperiodicity']['data']).reshape(emission['logperiodicity']['shape']),
         'rescale': np.array(emission['rescale']['data']).reshape(emission['rescale']['shape']),
@@ -2059,6 +2473,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         'rate_beta': np.array(emission['rate_beta']['data']).reshape(emission['rate_beta']['shape'])
     }
     transition = {
+        'start': 'noncanonical',
         'seqparam': {
             'kozak': np.array(transition['seqparam']['kozak']),
             'start': np.array(transition['seqparam']['start']),
@@ -2083,6 +2498,8 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         riboseq_data.compute_log_probability(emission)
         state = State(riboseq_data.n_triplets)
         state._forward_update(data=riboseq_data, transition=transition)
+        state.decode(data=riboseq_data, transition=transition, emission=None, frame=None)
+        return
         emission_errors = riboseq_data.compute_observed_pileup_deviation(emission, return_sorted=False)
         ORF_EMISSION_ERROR_MEAN = 1
         ORF_EMISSION_ERROR_BY_TRIPLET_SSE = 2
@@ -2153,11 +2570,11 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                     'by_pos': triplet_state_likelihood_values,
                     'sum': np.sum(triplet_state_likelihood_values)
                 },
-                # 'orf_emission_error': {
-                    # 'mean_rmse': orf_emission_error[ORF_EMISSION_ERROR_MEAN],
-                    # 'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE],
+                'orf_emission_error': {
+                    'mean_rmse': orf_emission_error[ORF_EMISSION_ERROR_MEAN],
+                    'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE],
                     # 'by_triplet_sse': by_triplet_sse
-                # }
+                }
             }
             candidate_cds_likelihoods.append(candidate_cds_results)
 
@@ -2166,9 +2583,10 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         state.decode(data=riboseq_data, transition=transition, emission=None, frame=None)
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
-            'data_logprob_full': riboseq_data.log_probability.tolist(),
+            # 'data_logprob_full': riboseq_data.log_probability.tolist(),
+            'data_logprob_full': riboseq_data.log_likelihood.tolist(),
             'state_alpha_full': state.alpha.tolist(),
-            'state_decode_alphas': state.decode_alphas.tolist(),
+            # 'state_decode_alphas': state.decode_alphas.tolist(),
             # 'triplet_genomic_positions': triplet_genomic_positions,
             'decode': {
                 'max_posterior': [utils.MAX if np.isinf(p) else p for p in state.max_posterior],
