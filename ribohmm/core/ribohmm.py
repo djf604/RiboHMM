@@ -9,6 +9,7 @@ from math import log, exp
 import cvxopt as cvx
 from cvxopt import solvers
 import time, pdb
+import operator
 
 from ribohmm import utils
 from ribohmm.utils import Mappability, States, adjust_state_matrix_for_offset
@@ -72,10 +73,10 @@ class Data:
     CandidateCDS = namedtuple('CandidateCDS', 'frame_i start_triplet_i stop_triplet_i'.split())
 
     def __init__(self, riboseq_pileup, codon_map, transcript_normalization_factor, is_pos_mappable):
-        """Instantiates a data object for a transcript and populates it 
+        """Instantiates a data object for a transcript and populates it
         with observed ribosome-profiling data, expression RPKM as its
-        scaling factor, and the DNA sequence of each triplet in the 
-        transcript in each frame and the missingness-type for each 
+        scaling factor, and the DNA sequence of each triplet in the
+        transcript in each frame and the missingness-type for each
         triplet in the transcript in each frame.
 
         footprint_counts (riboseq_pileup, formerly obs)
@@ -167,7 +168,7 @@ class Data:
 
            Arguments:
                emission : instance of `Emission`
-                          containing estimates of 
+                          containing estimates of
                           emission model parameters
 
         """
@@ -313,7 +314,7 @@ class Data:
         if np.isnan(self.extra_log_probability).any() or np.isinf(self.extra_log_probability).any():
             print('Warning: Inf/Nan in extra log likelihood')
             pdb.set_trace()
-    
+
     def compute_log_probability_(self, emission):
         self.log_likelihood = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
         self.extra_log_likelihood = np.zeros((3,), dtype=np.float64)
@@ -386,7 +387,7 @@ class Data:
         self.log_probability = self.log_likelihood
         self.extra_log_probability = self.extra_log_likelihood
 
-   
+
         # if np.isnan(self.log_likelihood).any() \
         # or np.isinf(self.log_likelihood).any():
         #     print("Warning: Inf/Nan in data log likelihood")
@@ -520,7 +521,7 @@ class Data:
 
 
 class Frame(object):
-    
+
     def __init__(self):
         """Instantiates a frame object for a transcript and initializes
         a random posterior probability over all three frames.
@@ -562,7 +563,7 @@ def rebuild_Frame(pos):
 
 
 class State(object):
-    
+
     def __init__(self, n_triplets):
 
         # number of triplets
@@ -834,7 +835,7 @@ class State(object):
         return orf_posteriors
 
 
-    def decode(self, data, transition):
+    def decode(self, data, transition, min=False):
         P = logistic(-1*(transition['seqparam']['kozak'] * data.codon_map['kozak']
             + transition['seqparam']['start'][data.codon_map['start']]))
         Q = logistic(-1*transition['seqparam']['stop'][data.codon_map['stop']])
@@ -889,7 +890,8 @@ class State(object):
                     q = alpha[4] + log(1-Q[triplet_i, frame_i])
                 except ValueError:
                     q = utils.MIN
-                if p >= q:
+                # If min then p <= q else p >= q
+                if getattr(operator, 'le' if min else 'ge')(p, q):
                     newalpha[4] = p
                     pointer[triplet_i, 4] = 3
                 else:
@@ -906,7 +908,8 @@ class State(object):
                 # state 8
                 p = alpha[7]
                 q = alpha[8]
-                if p >= q:
+                # If min then p <= q else p >= q
+                if getattr(operator, 'le' if min else 'ge')(p, q):
                     newalpha[8] = p
                     pointer[triplet_i, 8] = 7
                 else:
@@ -921,7 +924,7 @@ class State(object):
 
             # constructing the MAP state sequence
             # alpha is 1-dim array of size n_states
-            state[self.n_triplets - 1] = np.argmax(alpha)
+            state[self.n_triplets - 1] = np.argmin(alpha)
             # Start on the second-to-last triplet, then count backward to the first triplet
             for triplet_i in range(self.n_triplets - 2, 0, -1):
                 # Previous state in the sense that it was the last calculated state
@@ -937,7 +940,7 @@ class State(object):
             # for triplet_i, state_ in enumerate(state):
             #     max_post += data.log_probability[frame_i, triplet_i, state_]
             # max_post = np.exp(max_post)
-            self.max_posterior[frame_i] = np.exp(np.max(alpha) - np.sum(self.likelihood[:, frame_i]))
+            self.max_posterior[frame_i] = np.exp(np.min(alpha) - np.sum(self.likelihood[:, frame_i]))
             # print(f'({max_post}|{self.max_posterior[frame_i]})')
             # print(np.max(alpha) - np.sum(self.likelihood[:, frame_i]))
             # print(alpha)
@@ -984,7 +987,7 @@ class State(object):
         for m in range(self.n_triplets):
 
             if state[m-1]==0:
-    
+
                 p = transition.seqparam['kozak'] * data.codon_map['kozak'][m,frame] \
                     + transition.seqparam['start'][data.codon_map['start'][m,frame]]
                 try:
@@ -1388,7 +1391,7 @@ class Emission(object):
                         ]) for datum, state, frame in zip(data, states, frames)
                         for f in range(3)
                     ])
-  
+
                 Bt = np.zeros((T, 3), dtype=np.float64)
                 Ct = np.zeros((T, 3), dtype=np.float64)
                 for t, (datum, state, frame) in enumerate(zip(data, states, frames)):
@@ -1397,7 +1400,7 @@ class Emission(object):
                         (datum.total_pileup[f, :, r] + self.rate_alpha[r, s] * self.rate_beta[r,s])
                         for f in range(3)
                     ])
- 
+
                     Bt[t, 0] += np.sum(argA[datum.missingness_type[r] == 3])
                     Bt[t, 1] += np.sum(argA[datum.missingness_type[r] == 5])
                     Bt[t, 2] += np.sum(argA[datum.missingness_type[r] == 6])
@@ -1522,11 +1525,11 @@ class Emission(object):
                 a[np.abs(a+1)<1e-4] = -1.
             else:
                 a_ok = True
-  
+
         beta = self._beta_map(beta, data, states, frames, denom)
 
         return beta
- 
+
     # @cython.boundscheck(False)
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
@@ -1771,7 +1774,7 @@ def alpha_func_grad(x, data, states, frames, rescale, beta):
     func = 0
     gradient = np.zeros((R,S), dtype=np.float64)
     for datum, state, frame in zip(data, states, frames):
-                    
+
         for r in range(R):
 
             for s in range(S):
@@ -1863,7 +1866,7 @@ def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
                                                                    np.sum(pos * (digamma(argA) - utils.nplog(argB)), 1)) + \
                                 np.sum(frame.posterior * argC) * (utils.nplog(beta[r, s]) - \
                                                                   digamma(x[r,s]*beta[r,s])) * beta[r,s]
-                        
+
                 hessian[r,s] = hessian[r,s] + beta[r,s]**2 * np.sum(frame.posterior * \
                                np.sum(pos * polygamma(1,argA),1)) - beta[r,s]**2 * \
                                np.sum(frame.posterior * argC) * polygamma(1,x[r,s]*beta[r,s])
@@ -2304,8 +2307,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
 
         frame = Frame()
         frame.update(riboseq_data, state)
-        orf_posteriors = state.new_decode(data=riboseq_data, transition=transition)
-        # print(orf_posteriors)
+        # orf_posteriors = state.new_decode(data=riboseq_data, transition=transition)
         state.decode(data=riboseq_data, transition=transition)
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
