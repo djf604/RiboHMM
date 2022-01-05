@@ -752,6 +752,7 @@ class State(object):
                 alpha = utils.nplog(1) + data.log_probability[frame_i, 0, 0]
                 for triplet_i in range(1, orf_state_matrix[frame_i].shape[1]):
                     current_state = orf_state_matrix[frame_i][orf_i, triplet_i]
+                    prev_state = orf_state_matrix[frame_i][orf_i, triplet_i - 1]
                     if current_state == 0:
                         try:
                             newalpha = alpha + log(1 - P[triplet_i, frame_i])  # What do we do when this is log(0)?
@@ -767,10 +768,13 @@ class State(object):
                     elif current_state == 3:
                         newalpha = alpha + log(1)
                     elif current_state == 4:
-                        try:
-                            newalpha = alpha + log(1 - Q[triplet_i, frame_i])
-                        except:
-                            newalpha = utils.MIN
+                        if prev_state == 3:
+                            newalpha = alpha + log(1)
+                        else:
+                            try:
+                                newalpha = alpha + log(1 - Q[triplet_i, frame_i])
+                            except:
+                                newalpha = utils.MIN
                     elif current_state == 5:
                         try:
                             newalpha = alpha + log(Q[triplet_i, frame_i])
