@@ -2307,8 +2307,9 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
 
         frame = Frame()
         frame.update(riboseq_data, state)
-        # orf_posteriors = state.new_decode(data=riboseq_data, transition=transition)
-        state.decode(data=riboseq_data, transition=transition)
+        orf_posteriors = state.new_decode(data=riboseq_data, transition=transition)
+        # print(orf_posteriors)
+        state.decode(data=riboseq_data, transition=transition, min=True)
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
             'data_logprob_full': riboseq_data.log_probability.tolist(),

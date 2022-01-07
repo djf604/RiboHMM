@@ -142,7 +142,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
     model_params = json.load(open(model_file))
 
     # load transcripts
-    transcript_names = list(transcript_models.keys())[:10]
+    transcript_names = list(transcript_models.keys())[:25]
     N = len(transcript_names)
     logger.info('Number of transcripts: {}'.format(N))
 
