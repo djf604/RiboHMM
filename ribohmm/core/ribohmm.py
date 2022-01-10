@@ -178,6 +178,8 @@ class Data:
         #  - 3rd dim is state index, of size emission.S, which is 9
         # In this case, log probability is the log of the likelihood that TODO
         self.log_probability = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
+        self.periodicity_model = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
+        self.occupancy_model = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
 
         # Same as above TODO
         self.extra_log_probability = np.zeros((3,), dtype=np.float64)
@@ -274,6 +276,8 @@ class Data:
                 rate_log_probability[mask, :] = 0
 
                 # Store the log probability
+                self.periodicity_model[frame_i] += log_probability
+                self.occupancy_model[frame_i] += rate_log_probability
                 self.log_probability[frame_i] += log_probability + rate_log_probability
 
                 # likelihood of extra positions in transcript
@@ -2266,8 +2270,10 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         print(orf_posteriors)
         state.decode(data=riboseq_data, transition=transition)
         discovery_mode_results.append({
-            'candidate_orf': candidate_cds_likelihoods,
+            # 'candidate_orf': candidate_cds_likelihoods,
             'data_logprob_full': riboseq_data.log_probability.tolist(),
+            'periodicity_model_full': riboseq_data.periodicity_model.tolist(),
+            'occupancy_model_full': riboseq_data.occupancy_model.tolist(),
             # 'data_logprob_full': riboseq_data.log_likelihood.tolist(),
             'state_alpha_full': state.alpha.tolist(),
             # 'state_decode_alphas': state.decode_alphas.tolist(),
