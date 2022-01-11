@@ -2208,6 +2208,8 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         # For each candidate CDS in this transcript
         for candidate_cds, orf_emission_error in zip(all_candidate_cds, emission_errors):
             triplet_likelihoods = list()
+            triplet_periodicity_likelihoods = list()
+            triplet_occupancy_likelihoods = list()
             triplet_alpha_values = list()
             triplet_state_likelihood_values = list()
             triplet_states = list()
@@ -2234,6 +2236,8 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             for triplet_i in range(riboseq_data.log_probability.shape[1]):
                 triplet_state = get_triplet_state(triplet_i, start_pos=candidate_cds.start, stop_pos=candidate_cds.stop)
                 triplet_likelihoods.append(riboseq_data.log_probability[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_periodicity_likelihoods.append(riboseq_data.periodicity_model[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_occupancy_likelihoods.append(riboseq_data.occupancy_model[candidate_cds.frame, triplet_i, triplet_state])
                 triplet_alpha_values.append(state.alpha[candidate_cds.frame, triplet_i, triplet_state])
                 triplet_state_likelihood_values.append(state.likelihood[triplet_i, candidate_cds.frame])
                 # triplet_states.append(get_triplet_string(triplet_state))
@@ -2248,14 +2252,22 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                     'by_pos': triplet_likelihoods,
                     'sum': np.sum(triplet_likelihoods)
                 },
-                'state_alpha': {
-                    'by_pos': triplet_alpha_values,
-                    'sum': np.sum(triplet_alpha_values)
+                'data_loglikelihood_periodicity': {
+                    'by_pos': triplet_periodicity_likelihoods,
+                    'sum': np.sum(triplet_periodicity_likelihoods)
                 },
-                'state_likelihood': {
-                    'by_pos': triplet_state_likelihood_values,
-                    'sum': np.sum(triplet_state_likelihood_values)
+                'data_loglikelihood_occupancy': {
+                    'by_pos': triplet_occupancy_likelihoods,
+                    'sum': np.sum(triplet_occupancy_likelihoods)
                 },
+                # 'state_alpha': {
+                #     'by_pos': triplet_alpha_values,
+                #     'sum': np.sum(triplet_alpha_values)
+                # },
+                # 'state_likelihood': {
+                #     'by_pos': triplet_state_likelihood_values,
+                #     'sum': np.sum(triplet_state_likelihood_values)
+                # },
                 'orf_emission_error': {
                     'mean_rmse': orf_emission_error[ORF_EMISSION_ERROR_MEAN],
                     'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE],
@@ -2267,15 +2279,15 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         frame = Frame()
         frame.update(riboseq_data, state)
         orf_posteriors = state.new_decode(data=riboseq_data, transition=transition)
-        print(orf_posteriors)
+        # print(orf_posteriors)
         state.decode(data=riboseq_data, transition=transition)
         discovery_mode_results.append({
-            # 'candidate_orf': candidate_cds_likelihoods,
+            'candidate_orf': candidate_cds_likelihoods,
             'data_logprob_full': riboseq_data.log_probability.tolist(),
             'periodicity_model_full': riboseq_data.periodicity_model.tolist(),
             'occupancy_model_full': riboseq_data.occupancy_model.tolist(),
             # 'data_logprob_full': riboseq_data.log_likelihood.tolist(),
-            'state_alpha_full': state.alpha.tolist(),
+            # 'state_alpha_full': state.alpha.tolist(),
             # 'state_decode_alphas': state.decode_alphas.tolist(),
             # 'triplet_genomic_positions': triplet_genomic_positions,
             'decode': {
