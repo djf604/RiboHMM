@@ -193,3 +193,23 @@ class Timer:
 
     def elapsed(self):
         return time.time() - self._start_time
+
+
+def adjust_state_matrix_for_offset(state_matrix):
+    """
+    Shift start by 1 forward, stop by 2 forward
+    """
+    start_index = np.argwhere(state_matrix == States.ST_TIS)[0][0]
+    stop_index = np.argwhere(state_matrix == States.ST_TTS)[0][0]
+    state_matrix[start_index - 1] = 0
+    state_matrix[start_index] = 1
+    state_matrix[start_index + 1] = 2
+    state_matrix[start_index + 2] = 3
+
+    state_matrix[stop_index - 1] = 4
+    state_matrix[stop_index] = 4
+    state_matrix[stop_index + 1] = 5
+    state_matrix[stop_index + 2] = 6
+    state_matrix[stop_index + 3] = 7
+
+    return state_matrix

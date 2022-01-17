@@ -8,7 +8,7 @@ import numpy as np
 
 from ribohmm import core, utils
 from ribohmm.core import seq as seq
-from ribohmm.core.ribohmm import infer_coding_sequence, discovery_mode_data_logprob
+from ribohmm.core.ribohmm import infer_coding_sequence, discovery_mode_data_logprob, state_matrix_qa, compare_raw_seq_to_codon_map
 
 import logging
 logging.basicConfig(
@@ -221,6 +221,15 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                 rna_mappability = [np.ones(c.shape,dtype='bool') for c in footprint_counts]
 
             logger.info('Running inference')
+            # compare_raw_seq_to_codon_map(genome_track, transcripts, codon_maps)
+            # state_matrix_qa(
+            #     riboseq_footprint_pileups=footprint_counts,
+            #     codon_maps=codon_maps,
+            #     transcript_normalization_factors=rna_counts,
+            #     mappability=rna_mappability,
+            #     genome_track=genome_track,
+            #     transcripts=transcripts
+            # )
             # states, frames = infer_coding_sequence(footprint_counts, codon_maps, \
             #                                             rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
             pos_data_log_probs = discovery_mode_data_logprob(
@@ -406,7 +415,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             #     write_inferred_cds(handle, transcript, state, frame, rna_sequence)
 
     import pickle
-    with open('dec21.json', 'w') as out:
+    with open('jan23.json', 'w') as out:
         json.dump(serialize_output({'pos': discovery_mod_results_pos, 'neg': discovery_mod_results_neg}), out)
         # json.dump(serialize_output({'pos': discovery_mod_results_pos[:1], 'neg': list()}), out)
     # with open('aug26.pkl', 'wb') as out:

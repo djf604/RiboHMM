@@ -80,6 +80,10 @@ class RnaSequence(object):
                         for k in [3, 6, 9, 12]
                     ]
                     if not any(nearby_stop_codon):
+                        # print('Adding {} to codon map, seq is {}, or maybe its {}'.format(codon_spelling,
+                        #                                                  self.sequence[triplet_i * 3 + frame_i:(triplet_i + 1) * 3 + frame_i]),
+                        #       'no'
+                        #       )
                         start_codon_map[triplet_i, frame_i] = STARTS[codon_spelling]
 
         return start_codon_map

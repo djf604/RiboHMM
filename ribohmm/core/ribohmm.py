@@ -11,7 +11,7 @@ from cvxopt import solvers
 import time, pdb
 
 from ribohmm import utils
-from ribohmm.utils import Mappability, States
+from ribohmm.utils import Mappability, States, adjust_state_matrix_for_offset
 # from numba import njit, jit
 
 from pprint import pformat
@@ -448,16 +448,34 @@ class Data:
             return orfs_with_errors
         return sorted(orfs_with_errors, key=lambda r: r[1])
 
-    def get_candidate_cds_simple(self):
+    def get_candidate_cds_simple(self, shifted_forward=True):
+        """
+
+        Args:
+            shifted_forward: If True, shifts forward the codon map to directly represent the codon position
+
+        Returns:
+
+        """
+        local_start_codon_map = self.codon_map['start'].copy()
+        local_stop_codon_map = self.codon_map['stop'].copy()
+
+        if shifted_forward:
+            local_start_codon_map = np.roll(local_start_codon_map, shift=1, axis=0)
+            local_start_codon_map[0] = [0, 0, 0]  # np.roll wraps around, so set the first codon to 0s
+            local_stop_codon_map = np.roll(local_stop_codon_map, shift=1, axis=0)
+            # local_stop_codon_map[:2] = [0, 0, 0]
+            local_stop_codon_map[0] = [0, 0, 0]
+
         N_FRAMES = 3
-        n_triplets = self.codon_map['start'].shape[0]
+        n_triplets = local_start_codon_map.shape[0]
         candidate_cds = list()
 
         for pos_i in range(n_triplets):
             for frame_i in range(N_FRAMES):
-                if self.codon_map['start'][pos_i, frame_i] > 0:
+                if local_start_codon_map[pos_i, frame_i] > 0:
                     for stop_i in range(pos_i, n_triplets):
-                        if self.codon_map['stop'][stop_i, frame_i] > 0:
+                        if local_stop_codon_map[stop_i, frame_i] > 0:
                             candidate_cds.append(CandidateCDS(
                                 frame=frame_i,
                                 start=pos_i,
@@ -480,11 +498,22 @@ class Data:
         return list(seq)
 
     def orf_state_matrix(self):
+        """
+        Returns () matrix of orf states,
+        """
         n_triplets = self.codon_map['start'].shape[0]
         orf_state_matrix_ = [list(), list(), list()]
 
         for candidate_cds in self.get_candidate_cds_simple():
             state_seq = self.get_state_sequence(n_triplets, candidate_cds.start, candidate_cds.stop)
+            # print(state_seq)
+            # try:
+            #     shifted_state_seq = adjust_state_matrix_for_offset(state_seq)
+            #     print(state_seq)
+            #     print(shifted_state_seq)
+            # except:
+            #     print('no shift available')
+            #     shifted_state_seq = state_seq
             orf_state_matrix_[candidate_cds.frame].append(state_seq)
 
         return [np.array(m) for m in orf_state_matrix_]
@@ -743,6 +772,7 @@ class State(object):
 
         N_FRAMES = 3
         orf_state_matrix = data.orf_state_matrix()
+        print(orf_state_matrix[0][0])
         orf_posteriors = list()
 
         for frame_i in range(N_FRAMES):
@@ -757,11 +787,15 @@ class State(object):
                         try:
                             newalpha = alpha + log(1 - P[triplet_i, frame_i])  # What do we do when this is log(0)?
                         except:
+                            print(f'Got utils.MIN on triplet {triplet_i} | P[{triplet_i}, {frame_i}] = {P[triplet_i, frame_i]} | Exception 1****************')
+                            break
                             newalpha = utils.MIN
                     elif current_state == 1:
                         try:
                             newalpha = alpha + log(P[triplet_i, frame_i])
                         except:
+                            print(f'Got utils.MIN on triplet {triplet_i} | P[{triplet_i}, {frame_i}] = {P[triplet_i, frame_i]} | Exception 2')
+                            break
                             newalpha = utils.MIN
                     elif current_state == 2:
                         newalpha = alpha + log(1)
@@ -774,11 +808,15 @@ class State(object):
                             try:
                                 newalpha = alpha + log(1 - Q[triplet_i, frame_i])
                             except:
+                                print(f'Got utils.MIN on triplet {triplet_i} | Q[{triplet_i}, {frame_i}] = {Q[triplet_i, frame_i]} | Exception 3***************')
+                                break
                                 newalpha = utils.MIN
                     elif current_state == 5:
                         try:
                             newalpha = alpha + log(Q[triplet_i, frame_i])
                         except:
+                            print(f'Got utils.MIN on triplet {triplet_i} | Q[{triplet_i}, {frame_i}] = {Q[triplet_i, frame_i]} | Exception 4')
+                            break
                             newalpha = utils.MIN
                     elif current_state == 6:
                         newalpha = alpha + log(1)
@@ -788,10 +826,11 @@ class State(object):
                         newalpha = alpha + log(1)  # Is it deterministic?
 
                     alpha = newalpha + data.log_probability[frame_i, triplet_i, current_state]  # Last element is the state we're on?
+                else:
+                    print('!!!!!!! Never got a util.MIN')
 
                 # orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[:, frame_i]))
-                orf_posteriors[frame_i][orf_i] = alpha - np.sum(self.likelihood[:, frame_i])
-
+                orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[:, frame_i]))
         return orf_posteriors
 
 
@@ -2178,7 +2217,10 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
 
     discovery_mode_results = list()
     # For each transcript
+    i = 0
     for transcript, riboseq_data in zip(transcripts, data):
+        print('##### Looking at transcript {}'.format(i))
+        i += 1
         riboseq_data.compute_log_probability(emission)
         state = State(riboseq_data.n_triplets)
         state._forward_update(data=riboseq_data, transition=transition)
@@ -2263,7 +2305,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         frame = Frame()
         frame.update(riboseq_data, state)
         orf_posteriors = state.new_decode(data=riboseq_data, transition=transition)
-        print(orf_posteriors)
+        # print(orf_posteriors)
         state.decode(data=riboseq_data, transition=transition)
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
@@ -2318,25 +2360,39 @@ I want all the output in this format:
 ]
 """
 
-def discovery_mode(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability,
-                   transition, emission):
-    transition = {
-        'seqparam': {
-            'kozak': np.array(transition['seqparam']['kozak']),
-            'start': np.array(transition['seqparam']['start']),
-            'stop': np.array(transition['seqparam']['stop'])
-        }
-    }
-    # logger.info('Transition parameters: {}'.format(pformat(transition)))
 
-    emission = {
-        'S': emission['S'],
-        'logperiodicity': np.array(emission['logperiodicity']['data']).reshape(emission['logperiodicity']['shape']),
-        'rescale': np.array(emission['rescale']['data']).reshape(emission['rescale']['shape']),
-        'rate_alpha': np.array(emission['rate_alpha']['data']).reshape(emission['rate_alpha']['shape']),
-        'rate_beta': np.array(emission['rate_beta']['data']).reshape(emission['rate_beta']['shape'])
-    }
 
+
+def compare_raw_seq_to_codon_map(genome_track, transcripts, codon_maps):
+    """
+    A dictionary with three keys: kozak, start, and stop. The values for each of those keys is an array of size
+        (num_codons, 3), where the 3 is for each possible reading frame.
+
+        The start array maps to the list of start codons in utils.STARTCODONS, and the stop array does the same.
+        ex:
+        [
+          [0 1 0],
+          [0 0 0],
+          [3 0 0]
+        ]
+    """
+    rna_sequences = genome_track.get_sequence(transcripts)
+    for seq, codon_map in zip(rna_sequences, codon_maps):
+        print(seq)
+        print(codon_map['start'])
+        for frame_i in range(3):
+            frame_codon_map = list(codon_map['start'][:, frame_i])
+            for state_i, state_value in enumerate(frame_codon_map):
+                state_seq = seq[state_i * 3 + frame_i:(state_i + 1) * 3 + frame_i]
+                if state_value > 0 and state_seq not in utils.STARTCODONS:
+                    pass
+                    # print('bad')
+
+
+
+
+def state_matrix_qa(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability,
+                    genome_track, transcripts):
     data = [
         Data(
             riboseq_footprint_pileup,
@@ -2348,62 +2404,24 @@ def discovery_mode(riboseq_footprint_pileups, codon_maps, transcript_normalizati
         in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability)
     ]
 
-    """
-    We want the likelihood of the entire transcript for a given start and stop definition, not just 
-    the likelihood between the start and stop
-    
-    Just looking at the data (compute_log_prob), if we get total likelihood, does it look like an ORF?
-    So just look at compute_data_log, which doesn't include transition parameters
-    
-    Need to incorporate additional position likelihood and frame position in order to compare with 
-    Viterbi
-    
-    Figure out what State.likelihood is about, now that we know more about State.alpha
-    
-    Find out where State.alpha is used, since it isn't used in inference
-    """
-    data_inferences = list()
-    for riboseq_data in data:
-        state = State(riboseq_data.n_triplets)
-        riboseq_data.compute_log_probability(emission)
-        state._forward_update(data=riboseq_data, transition=transition)
+    rna_sequences = genome_track.get_sequence(transcripts)
 
-        candidate_cds_likelihoods = list()
-        all_candidate_cds = riboseq_data.get_candidate_cds_simple()
-        for candidate_cds in all_candidate_cds:
-            if candidate_cds.stop - candidate_cds.start < 4:
-                continue  # TODO Is this candidate sequence too small?
-            candidate_cds_likelihood = 0
-            pos_state = None
-            for pos_i in range(candidate_cds.start, candidate_cds.stop + 1):
-                if pos_state is None:
-                    pos_state = States.ST_TIS
-                elif pos_state == States.ST_TIS:
-                    pos_state = States.ST_TIS_PLUS
-                elif pos_state == States.ST_TIS_PLUS:
-                    pos_state = States.ST_TES
-                elif pos_i == candidate_cds.stop - 1:
-                    pos_state = States.ST_TTS_MINUS
-                elif pos_i == candidate_cds.stop:
-                    pos_state = States.ST_TTS
-                state_likelihood = state.alpha[candidate_cds.frame, pos_i, pos_state]
-                candidate_cds_likelihood += state_likelihood
-            candidate_cds_likelihoods.append(candidate_cds_likelihood)
-
-        data_inferences.append(sorted(
-            list(zip(all_candidate_cds, candidate_cds_likelihoods)),
-            key=lambda r: r[1],
-            reverse=True
-        ))
-
-
-    """
-    The hidden states are the 9 states
-    The observed states are the triplets
-    The transition matrix and emission matrix are defined
-    """
-
-
-
-
+    for transcript_i, (data_, seq) in enumerate(zip(data, rna_sequences)):
+        correct_starts, correct_stops = [0, 0, 0], [0, 0, 0]
+        state_matrix = data_.orf_state_matrix()
+        for frame_i, state_matrix_ in enumerate(state_matrix):
+            for orf_i, orf_states in enumerate(state_matrix_):
+                for state_i, state_value in enumerate(orf_states):
+                    state_seq = seq[state_i * 3 + frame_i:(state_i + 1) * 3 + frame_i]
+                    if state_value == States.ST_TIS and state_seq in utils.STARTCODONS:
+                        correct_starts[frame_i] += 1
+                    elif state_value == States.ST_TTS and state_seq in utils.STOPCODONS:
+                        correct_stops[frame_i] += 1
+        # Print Report
+        print(f'Transcript {transcript_i}')
+        for frame_i in range(3):
+            print('\tFrame {} | Starts {}/{} | Stop {}/{}'.format(
+                frame_i, correct_starts[frame_i], len(state_matrix[frame_i]),
+                correct_stops[frame_i], len(state_matrix[frame_i])
+            ))
 
