@@ -2240,7 +2240,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                 triplet_occupancy_likelihoods.append(riboseq_data.occupancy_model[candidate_cds.frame, triplet_i, triplet_state])
                 triplet_alpha_values.append(state.alpha[candidate_cds.frame, triplet_i, triplet_state])
                 triplet_state_likelihood_values.append(state.likelihood[triplet_i, candidate_cds.frame])
-                # triplet_states.append(get_triplet_string(triplet_state))
+                triplet_states.append(get_triplet_string(triplet_state))
             # Once each position probability is gathered, add them to a list for this transcript
 
             candidate_cds_results = {
@@ -2286,6 +2286,8 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             'data_logprob_full': riboseq_data.log_probability.tolist(),
             'periodicity_model_full': riboseq_data.periodicity_model.tolist(),
             'occupancy_model_full': riboseq_data.occupancy_model.tolist(),
+            'riboseq_counts_total_pileup': riboseq_data.total_pileup.tolist(),
+            'riboseq_counts_total_pileup_sum_footprints': riboseq_data.total_pileup.sum(axis=2).tolist(),
             # 'data_logprob_full': riboseq_data.log_likelihood.tolist(),
             # 'state_alpha_full': state.alpha.tolist(),
             # 'state_decode_alphas': state.decode_alphas.tolist(),
