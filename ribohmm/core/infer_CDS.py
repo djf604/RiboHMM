@@ -24,30 +24,6 @@ warnings.filterwarnings('ignore', '.*divide by zero.*',)
 warnings.filterwarnings('ignore', '.*invalid value.*',)
 
 
-
-check_out = ['ENST00000607058.1',
- 'ENST00000488123.2',
- 'ENST00000540040.1',
- 'ENST00000591551.1',
- 'ENST00000389680.2',
- 'ENST00000387347.2',
- 'ENST00000361390.2',
- 'ENST00000387405.1',
- 'ENST00000387409.1',
- 'ENST00000361624.2',
- 'ENST00000361739.1',
- 'ENST00000362079.2',
- 'ENST00000361335.1',
- 'ENST00000361381.2',
- 'ENST00000387441.1',
- 'ENST00000387449.1',
- 'ENST00000387456.1',
- 'ENST00000361567.2',
- 'ENST00000361681.2',
- 'ENST00000361789.2',
- 'ENST00000387460.2',
- 'ENST00000387461.2']
-
 def parse_args():
     parser = argparse.ArgumentParser(description=" infers the translated sequences "
                                      " from ribosome profiling data and RNA sequence data; "
@@ -91,6 +67,7 @@ def parse_args():
 
     return options
 
+
 def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
     posteriors = state.max_posterior*frame.posterior
     index = np.argmax(posteriors)
@@ -99,8 +76,6 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
 
     # output is not a valid CDS
     if tis is None or tts is None:
-        if transcript.id in check_out:
-            print('{} write aborted, not valid'.format(transcript.id))
         return None
 
     posterior = int(posteriors[index]*10000) 
@@ -127,14 +102,12 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
                ','.join(map(str,[transcript.start+e[0] for e in transcript.exons]))+',']
     handle.write(" ".join(map(str,towrite))+'\n')
 
-    if transcript.id in check_out:
-        print('{} write completed'.format(transcript.id))
-
-    return None
 
 def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_prefix, ribo_track,
           rnaseq_track, output_directory):
     logger.info('Starting infer_CDS()')
+    N_TRANSCRIPTS = None  # Set to None to allow all transcripts
+    DEBUG_OUTPUT_FILENAME = 'jan23.json'
 
     """
     Load the model from JSON
@@ -142,7 +115,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
     model_params = json.load(open(model_file))
 
     # load transcripts
-    transcript_names = list(transcript_models.keys())[:10]
+    transcript_names = list(transcript_models.keys())[:N_TRANSCRIPTS]
     N = len(transcript_names)
     logger.info('Number of transcripts: {}'.format(N))
 
@@ -155,7 +128,6 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                "protein_seq", "num_exons", "exon_sizes", "exon_starts"]
     handle.write(" ".join(map(str,towrite))+'\n')
 
-    from collections import Counter, defaultdict
     # Find exon counts for all transcripts, both pos and neg
     alltranscripts = [transcript_models[name] for name in transcript_names]
     for t in alltranscripts:
@@ -263,24 +235,6 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                 }
                 for t, candidate_cds_likelihoods, f in zip(transcripts, pos_data_log_probs, footprint_counts)
             ]
-            # d = discovery_mod_results_pos[0]
-            # print('!!!!!!!!!!!!!!')
-            # print(d['transcript_info'])
-            # exit()
-            # del d['results']
-            # del d['exons']
-
-            def get_debug_object(d):
-                d['results']['candidate_orf'] = d['results']['candidate_orf'][1:2]
-                del d['riboseq_pileup_counts']
-                for c_orf in d['results']['candidate_orf']:
-                    for k in list(c_orf.keys()):
-                        if k != 'orf_emission_error_mrsme':
-                            del c_orf[k]
-                return d
-
-            # d = get_debug_object(d)
-
 
             def serialize_output(results):
                 if isinstance(results, list):
@@ -292,34 +246,6 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                 if isinstance(results, np.ndarray):
                     return list(results)
                 return results
-
-            # d = serialize_output(discovery_mod_results_pos[0])
-            # print('!!!!!!!!!!!!!!')
-            # print(d['transcript_info'])
-            # exit()
-
-            # import pickle
-            # with open('aug24.pkl', 'wb') as out:
-            #     pickle.dump(d, out)
-            # with open('aug24.json', 'w') as out:
-            #     json.dump(pickle.load(open('aug24.pkl', 'rb')), out)
-            # import json
-            # print('Converting to json')
-            # with open('aug24.json', 'w') as out:
-            #     json.dump(serialize_output(d), out)
-            # print('!!!!!!!!!!!!')
-            # # print(d)
-            # exit()
-
-
-            # import pickle
-            # with open('candidate_cds2.pkl', 'wb') as out:
-            #     pickle.dump({'pos': pos_data_log_probs}, out)
-
-
-            # logger.info('Writing out inferred CDS')
-            # for transcript,state,frame,rna_sequence in zip(transcripts,states,frames,rna_sequences):
-            #     write_inferred_cds(handle, transcript, state, frame, rna_sequence)
 
         # focus on negative strand
         logger.info('Looking at transcript negative strands')
@@ -366,16 +292,6 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
             #                        rna_counts, rna_mappability, transition, emission)
             logger.info('Running inference')
-            # import pickle
-            # with open('data.pkl', 'wb') as out:
-            #     pickle.dump({
-            #         'footprint_counts': footprint_counts,
-            #         'codon_flags': codon_flags,
-            #         'rna_counts': rna_counts,
-            #         'rna_mappability': rna_mappability
-            #     }, out)
-            # import sys
-            # sys.exit()
             # states, frames = infer_coding_sequence(footprint_counts, codon_maps, \
             #                                             rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
             neg_data_log_probs = discovery_mode_data_logprob(
@@ -414,39 +330,19 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             # for transcript, state, frame, rna_sequence in zip(transcripts, states, frames, rna_sequences):
             #     write_inferred_cds(handle, transcript, state, frame, rna_sequence)
 
-    import pickle
-    with open('jan23.json', 'w') as out:
+    # Output debug output bundle
+    with open(DEBUG_OUTPUT_FILENAME, 'w') as out:
         json.dump(serialize_output({'pos': discovery_mod_results_pos, 'neg': discovery_mod_results_neg}), out)
-        # json.dump(serialize_output({'pos': discovery_mod_results_pos[:1], 'neg': list()}), out)
-    # with open('aug26.pkl', 'wb') as out:
-    #     pickle.dump({'pos': discovery_mod_results_pos, 'neg': discovery_mod_results_neg}, out)
 
     logger.info('Closing handles')
     handle.close()
     ribo_track.close()
-    # import json
-    # import pickle
-    #
-    # for k in list(duplicates.keys()):
-    #     if len(duplicates[k]) <= 1:
-    #         del duplicates[k]
-    #
-    #
-    # with open('duplicates.pkl', 'wb') as dup_pickle:
-    #     pickle.dump(duplicates, dup_pickle)
 
     if rnaseq_track is not None:
         rnaseq_track.close()
     genome_track.close()
 
     logger.info('Finished')
-
-
-def discovery_mode(model_file, transcript_models, genome_track, mappability_tabix_prefix, ribo_track,
-                   rnaseq_track, output_directory):
-    model_params = json.load(open(model_file))
-
-
 
 
 # if __name__=="__main__":

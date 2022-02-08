@@ -1,8 +1,4 @@
 import numpy as np
-# cimport numpy as np
-# import cython
-# cimport cython
-# from cpython cimport bool
 from numpy.ma.core import MaskedArray
 from scipy.special import gammaln, digamma, polygamma
 from math import log, exp
@@ -11,33 +7,24 @@ from cvxopt import solvers
 import time, pdb
 
 from ribohmm import utils
-from ribohmm.utils import Mappability, States, adjust_state_matrix_for_offset
-# from numba import njit, jit
+from ribohmm.utils import Mappability, States
 
-from pprint import pformat
-from collections import namedtuple, defaultdict
+from collections import namedtuple
 import logging
 logger = logging.getLogger('viterbi_log')
 
 solvers.options['maxiters'] = 300
 solvers.options['show_progress'] = False
-# logistic = lambda x: 1./(1+np.exp(x))
-
 CandidateCDS = namedtuple('CandidateCDS', 'frame start stop')
 
-# @njit
 def logistic(x):
-    return 1./(1+np.exp(x))
+    return 1 / (1 + np.exp(x))
 
 
 def nplog(x):
     return np.nan_to_num(np.log(x))
 
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# @cython.nonecheck(False)
-# cdef double normalize(np.ndarray[np.float64_t, ndim=1] x):
-# @njit
+
 def normalize(arr):
     """Compute the log-sum-exp of a real-valued vector,
        avoiding numerical overflow issues.
@@ -69,8 +56,6 @@ def outsum(arr):
 
 
 class Data:
-    CandidateCDS = namedtuple('CandidateCDS', 'frame_i start_triplet_i stop_triplet_i'.split())
-
     def __init__(self, riboseq_pileup, codon_map, transcript_normalization_factor, is_pos_mappable):
         """Instantiates a data object for a transcript and populates it 
         with observed ribosome-profiling data, expression RPKM as its
@@ -176,10 +161,8 @@ class Data:
         #  - 1st dim is frame index, of size 3
         #  - 2nd dim is triplet index, of size n_triplets
         #  - 3rd dim is state index, of size emission.S, which is 9
-        # In this case, log probability is the log of the likelihood that TODO
+        # In this case, log probability is the log of the likelihood that
         self.log_probability = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
-
-        # Same as above TODO
         self.extra_log_probability = np.zeros((3,), dtype=np.float64)
 
         # missingness-types where 1 out of 3 positions are unmappable
@@ -277,7 +260,6 @@ class Data:
                 self.log_probability[frame_i] += log_probability + rate_log_probability
 
                 # likelihood of extra positions in transcript
-                # for l from 0 <= l < f:
                 # Compute likelihood for bases before the core sequence of triplets
                 # TODO Consolidate this code, make it DRY
                 for extra_base_pos in range(frame_i):
@@ -331,7 +313,6 @@ class Data:
                     emission['logperiodicity'][r]
                 ) + gammaln(self.total_pileup[f,:,r:r+1]+1) - utils.insum(gammaln(count_data+1),[1])
 
-                # if emission.start=='noncanonical':  """Unique"""
                 if True:
                     # abundance likelihood
                     rate_log_likelihood = (
@@ -428,14 +409,6 @@ class Data:
                     else:
                         triplet_proportions = triplet_pileups / triplet_pileups.sum()
                     square_error = (triplet_proportions - state_expected) ** 2
-                    # import random
-                    # if random.random() < 0.01:
-                    #     print('######')
-                    #     print(f'Triplet_state: {triplet_state}')
-                    #     print(f'Expected proportion: {state_expected}')
-                    #     print(f'triplet pileups: {triplet_pileups}')
-                    #     print(f'triplet_proportion: {triplet_proportions}')
-                    #     print(f'square error: {square_error}')
                     orf_square_error[triplet_i] = square_error
 
                 by_triplet_error[footprint_length_i] = np.sum(orf_square_error, axis=1)
@@ -464,7 +437,6 @@ class Data:
             local_start_codon_map = np.roll(local_start_codon_map, shift=1, axis=0)
             local_start_codon_map[0] = [0, 0, 0]  # np.roll wraps around, so set the first codon to 0s
             local_stop_codon_map = np.roll(local_stop_codon_map, shift=1, axis=0)
-            # local_stop_codon_map[:2] = [0, 0, 0]
             local_stop_codon_map[0] = [0, 0, 0]
 
         N_FRAMES = 3
@@ -506,14 +478,6 @@ class Data:
 
         for candidate_cds in self.get_candidate_cds_simple():
             state_seq = self.get_state_sequence(n_triplets, candidate_cds.start, candidate_cds.stop)
-            # print(state_seq)
-            # try:
-            #     shifted_state_seq = adjust_state_matrix_for_offset(state_seq)
-            #     print(state_seq)
-            #     print(shifted_state_seq)
-            # except:
-            #     print('no shift available')
-            #     shifted_state_seq = state_seq
             orf_state_matrix_[candidate_cds.frame].append(state_seq)
 
         return [np.array(m) for m in orf_state_matrix_]
@@ -531,10 +495,6 @@ class Frame(object):
         # self.posterior = int(self.posterior/self.posterior.sum())
         self.posterior = self.posterior/self.posterior.sum()
 
-    # @cython.boundscheck(False)
-    # @cython.wraparound(False)
-    # @cython.nonecheck(False)
-    # cdef update(self, Data data, State state):
     def update(self, data, state):
         """Update posterior probability over the three
         frames for a transcript.
@@ -558,7 +518,6 @@ def rebuild_Frame(pos):
     f = Frame()
     f.posterior = pos
     return f
-
 
 
 class State(object):
@@ -681,13 +640,6 @@ class State(object):
         #     pdb.set_trace()
 
     def _reverse_update(self, data, transition):
-
-        # cdef long f, id, s, m
-        # cdef double p, q, a
-        # cdef np.ndarray[np.uint8_t, ndim=1] swapidx
-        # cdef np.ndarray[np.float64_t, ndim=1] beta, newbeta
-        # cdef np.ndarray[np.float64_t, ndim=2] P, Q
-
         swapidx = np.array([1, 2, 3, 5, 6, 7]).astype(np.uint8)
         self.pos_first_moment = np.empty((3, self.n_triplets, self.n_states), dtype=np.float64)
         self.pos_cross_moment_start = np.empty((3, self.n_triplets, 2), dtype=np.float64)
@@ -788,14 +740,12 @@ class State(object):
                             newalpha = alpha + log(1 - P[triplet_i, frame_i])  # What do we do when this is log(0)?
                         except:
                             print(f'Got utils.MIN on triplet {triplet_i} | P[{triplet_i}, {frame_i}] = {P[triplet_i, frame_i]} | Exception 1****************')
-                            break
                             newalpha = utils.MIN
                     elif current_state == 1:
                         try:
                             newalpha = alpha + log(P[triplet_i, frame_i])
                         except:
                             print(f'Got utils.MIN on triplet {triplet_i} | P[{triplet_i}, {frame_i}] = {P[triplet_i, frame_i]} | Exception 2')
-                            break
                             newalpha = utils.MIN
                     elif current_state == 2:
                         newalpha = alpha + log(1)
@@ -809,14 +759,12 @@ class State(object):
                                 newalpha = alpha + log(1 - Q[triplet_i, frame_i])
                             except:
                                 print(f'Got utils.MIN on triplet {triplet_i} | Q[{triplet_i}, {frame_i}] = {Q[triplet_i, frame_i]} | Exception 3***************')
-                                break
                                 newalpha = utils.MIN
                     elif current_state == 5:
                         try:
                             newalpha = alpha + log(Q[triplet_i, frame_i])
                         except:
                             print(f'Got utils.MIN on triplet {triplet_i} | Q[{triplet_i}, {frame_i}] = {Q[triplet_i, frame_i]} | Exception 4')
-                            break
                             newalpha = utils.MIN
                     elif current_state == 6:
                         newalpha = alpha + log(1)
@@ -829,10 +777,8 @@ class State(object):
                 else:
                     print('!!!!!!! Never got a util.MIN')
 
-                # orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[:, frame_i]))
                 orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[:, frame_i]))
         return orf_posteriors
-
 
     def decode(self, data, transition):
         P = logistic(-1*(transition['seqparam']['kozak'] * data.codon_map['kozak']
@@ -851,7 +797,7 @@ class State(object):
         # Most likely hidden state for each triplet
         state = np.zeros((self.n_triplets,), dtype=np.uint8)
 
-        # for f from 0 <= f < 3:
+        # Iterate over each frame
         for frame_i in range(3):
 
             # find the state sequence with highest posterior
@@ -859,7 +805,6 @@ class State(object):
             # This frame, first triplet, all states
             alpha = logprior + data.log_probability[frame_i, 0, :]
 
-            # for m from 1 <= m < self.n_triplets:
             for triplet_i in range(1, self.n_triplets):
 
                 # states 2,3,6,7
@@ -938,11 +883,6 @@ class State(object):
             #     max_post += data.log_probability[frame_i, triplet_i, state_]
             # max_post = np.exp(max_post)
             self.max_posterior[frame_i] = np.exp(np.max(alpha) - np.sum(self.likelihood[:, frame_i]))
-            # print(f'({max_post}|{self.max_posterior[frame_i]})')
-            # print(np.max(alpha) - np.sum(self.likelihood[:, frame_i]))
-            # print(alpha)
-            # print(np.max(alpha))
-            # print(np.sum(self.likelihood[:, frame_i]))
 
             # identifying start codon position
             # state is 1-dim array of size n_triplets
@@ -967,12 +907,6 @@ class State(object):
         self.pos_first_moment = np.empty((1, 1, 1), dtype=np.float64)
         self.likelihood = np.empty((1, 1), dtype=np.float64)
 
-    # @cython.boundscheck(False)
-    # @cython.wraparound(False)
-    # @cython.nonecheck(False)
-    # cdef double joint_probability(self, Data data, Transition transition,
-    #                               np.ndarray[np.uint8_t, ndim=1] state, long frame):
-    # @njit
     def joint_probability(self, data, transition, state, frame):
 
         # cdef long m
@@ -2089,10 +2023,6 @@ def infer_coding_sequence(riboseq_footprint_pileups, codon_maps, transcript_norm
     """
     Inflate serialized transition and emission dictionaries
     """
-    # logger.info('Footprint counts: {}'.format(pformat(observations)))
-    # logger.info('Codon flags: {}'.format(pformat(codon_maps)))
-    # logger.info('RNA counts: {}'.format(pformat(scales)))
-    # logger.info('Mappability: {}'.format(pformat(mappability)))
     transition = {
         'seqparam': {
             'kozak': np.array(transition['seqparam']['kozak']),
@@ -2100,7 +2030,6 @@ def infer_coding_sequence(riboseq_footprint_pileups, codon_maps, transcript_norm
             'stop': np.array(transition['seqparam']['stop'])
         }
     }
-    # logger.info('Transition parameters: {}'.format(pformat(transition)))
 
     emission = {
         'S': emission['S'],
@@ -2109,7 +2038,6 @@ def infer_coding_sequence(riboseq_footprint_pileups, codon_maps, transcript_norm
         'rate_alpha': np.array(emission['rate_alpha']['data']).reshape(emission['rate_alpha']['shape']),
         'rate_beta': np.array(emission['rate_beta']['data']).reshape(emission['rate_beta']['shape'])
     }
-    # logger.info('Emission parameters: {}'.format(pformat(emission)))
 
     data = [
         Data(
@@ -2121,7 +2049,6 @@ def infer_coding_sequence(riboseq_footprint_pileups, codon_maps, transcript_norm
         for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable
         in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability)
     ]
-    # logger.info('There are {} Data items'.format(len(data)))
     states = [State(datum.n_triplets) for datum in data]
     frames = [Frame() for datum in data]
 
@@ -2327,12 +2254,6 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
     return discovery_mode_results
 
 
-# TODO I think above I have all the full likelihoods for each candidate CDS
-#      Need to find a way to look at them and present them well
-#      Also probably need to convert them back from log-form
-
-
-
 """
 Compare against transcript definition
 Compare against viterbi output
@@ -2361,8 +2282,6 @@ I want all the output in this format:
 """
 
 
-
-
 def compare_raw_seq_to_codon_map(genome_track, transcripts, codon_maps):
     """
     A dictionary with three keys: kozak, start, and stop. The values for each of those keys is an array of size
@@ -2387,8 +2306,6 @@ def compare_raw_seq_to_codon_map(genome_track, transcripts, codon_maps):
                 if state_value > 0 and state_seq not in utils.STARTCODONS:
                     pass
                     # print('bad')
-
-
 
 
 def state_matrix_qa(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability,
