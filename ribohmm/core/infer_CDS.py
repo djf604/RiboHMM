@@ -107,7 +107,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
           rnaseq_track, output_directory):
     logger.info('Starting infer_CDS()')
     N_TRANSCRIPTS = None  # Set to None to allow all transcripts
-    DEBUG_OUTPUT_FILENAME = 'jan23.json'
+    DEBUG_OUTPUT_FILENAME = 'feb07.json'
 
     """
     Load the model from JSON
