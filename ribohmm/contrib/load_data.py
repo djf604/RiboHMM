@@ -177,7 +177,7 @@ class RnaSeq():
                 chrom, start, stop, asite_count, strandedness, _ = count_record.split('\t')
                 count_pos = int(start) - transcript.start
                 if mask[count_pos]:
-                    counts += asite_count
+                    counts += int(asite_count)
 
             total_counts.append(max(1, counts) * 1e6 / (transcript.L * self.total))
 

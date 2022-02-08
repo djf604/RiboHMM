@@ -459,14 +459,17 @@ class Data:
 
     def get_state_sequence(self, n_triplets, start, stop):
         seq = np.zeros(n_triplets, dtype=int)
-        seq[start - 1] = 1
-        seq[start] = 2
-        seq[start + 1] = 3
-        seq[start + 2:stop - 1] = 4
-        seq[stop - 1] = 5
-        seq[stop] = 6
-        seq[stop + 1] = 7
-        seq[stop + 2:] = 8
+        try:
+            seq[start - 1] = 1
+            seq[start] = 2
+            seq[start + 1] = 3
+            seq[start + 2:stop - 1] = 4
+            seq[stop - 1] = 5
+            seq[stop] = 6
+            seq[stop + 1] = 7
+            seq[stop + 2:] = 8
+        except:
+            pass  # Silently fail
         return list(seq)
 
     def orf_state_matrix(self):
@@ -724,7 +727,6 @@ class State(object):
 
         N_FRAMES = 3
         orf_state_matrix = data.orf_state_matrix()
-        print(orf_state_matrix[0][0])
         orf_posteriors = list()
 
         for frame_i in range(N_FRAMES):
@@ -774,8 +776,6 @@ class State(object):
                         newalpha = alpha + log(1)  # Is it deterministic?
 
                     alpha = newalpha + data.log_probability[frame_i, triplet_i, current_state]  # Last element is the state we're on?
-                else:
-                    print('!!!!!!! Never got a util.MIN')
 
                 orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[:, frame_i]))
         return orf_posteriors
