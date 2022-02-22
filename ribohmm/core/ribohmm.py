@@ -41,7 +41,7 @@ def normalize(arr):
     arr_max = np.max(arr)
     c = 0
     for val in arr:
-        c += exp(val - arr_max)
+        c += np.exp(val - arr_max)
     c = log(c) + arr_max
     return c
 
@@ -613,9 +613,9 @@ class State(object):
                 except ValueError:
                     q = utils.MIN
                 if p > q:
-                    newalpha[States.ST_TES] = log(1 + exp(q - p)) + p + data.log_probability[frame_i, triplet_i, States.ST_TES]
+                    newalpha[States.ST_TES] = log(1 + np.exp(q - p)) + p + data.log_probability[frame_i, triplet_i, States.ST_TES]
                 else:
-                    newalpha[States.ST_TES] = log(1 + exp(p - q)) + q + data.log_probability[frame_i, triplet_i, States.ST_TES]
+                    newalpha[States.ST_TES] = log(1 + np.exp(p - q)) + q + data.log_probability[frame_i, triplet_i, States.ST_TES]
 
                 # state 5
                 try:
@@ -627,9 +627,9 @@ class State(object):
                 p = self.alpha[frame_i, triplet_i - 1, States.ST_3PRIME_UTS_MINUS]
                 q = self.alpha[frame_i, triplet_i - 1, States.ST_5PRIME_UTS]
                 if p > q:
-                    newalpha[States.ST_5PRIME_UTS] = log(1 + exp(q - p)) + p + data.log_probability[frame_i, triplet_i, States.ST_5PRIME_UTS]
+                    newalpha[States.ST_5PRIME_UTS] = log(1 + np.exp(q - p)) + p + data.log_probability[frame_i, triplet_i, States.ST_5PRIME_UTS]
                 else:
-                    newalpha[States.ST_5PRIME_UTS] = log(1 + exp(p - q)) + q + data.log_probability[frame_i, triplet_i, States.ST_5PRIME_UTS]
+                    newalpha[States.ST_5PRIME_UTS] = log(1 + np.exp(p - q)) + q + data.log_probability[frame_i, triplet_i, States.ST_5PRIME_UTS]
 
                 normalized_new_alpha = normalize(newalpha)
                 # for s from 0 <= s < self.S:
@@ -684,8 +684,8 @@ class State(object):
 
                 # pos cross moment at start
                 a = self.alpha[f, m, 0] - self.likelihood[m + 1, f]
-                self.pos_cross_moment_start[f, m + 1, 0] = exp(a + p)
-                self.pos_cross_moment_start[f, m + 1, 1] = exp(a + pp)
+                self.pos_cross_moment_start[f, m + 1, 0] = np.exp(a + p)
+                self.pos_cross_moment_start[f, m + 1, 1] = np.exp(a + pp)
     
                 # states 1,2,3,5,6,7
                 for s in swapidx:
@@ -707,7 +707,7 @@ class State(object):
                 # for s from 0 <= s < self.S:
                 for s in range(self.n_states):
                     beta[s] = newbeta[s] - self.likelihood[m + 1, f]
-                    self.pos_first_moment[f, m, s] = exp(self.alpha[f, m, s] + beta[s])
+                    self.pos_first_moment[f, m, s] = np.exp(self.alpha[f, m, s] + beta[s])
 
             self.pos_cross_moment_start[f, 0, 0] = 0
             self.pos_cross_moment_start[f, 0, 1] = 0
@@ -922,7 +922,7 @@ class State(object):
                 p = transition.seqparam['kozak'] * data.codon_map['kozak'][m,frame] \
                     + transition.seqparam['start'][data.codon_map['start'][m,frame]]
                 try:
-                    joint_probability = joint_probability - log(1+exp(-p))
+                    joint_probability = joint_probability - log(1+np.exp(-p))
                     if state[m]==0:
                         joint_probability = joint_probability - p
                 except OverflowError:
@@ -933,7 +933,7 @@ class State(object):
 
                 q = transition.seqparam['stop'][data.codon_id['stop'][m,frame]]
                 try:
-                    joint_probability = joint_probability - log(1+exp(-q))
+                    joint_probability = joint_probability - log(1+np.exp(-q))
                     if state[m]==4:
                         joint_probability = joint_probability - q
                 except OverflowError:
@@ -970,7 +970,7 @@ class State(object):
         joint_prob = self.joint_probability(data, transition, state, frame)
         # compute marginal probability
         marginal_prob = np.sum(self.likelihood[:,frame])
-        posterior = exp(joint_prob - marginal_prob)
+        posterior = np.exp(joint_prob - marginal_prob)
 
         return posterior
 
@@ -1860,7 +1860,7 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
     print('inflated data')
 
     # Initialize latent variables
-    states = [State(datum.M) for datum in data]
+    states = [State(datum.n_triplets) for datum in data]
     print('inflated states')
     frames = [Frame() for _ in range(len(data))]
 
@@ -1881,7 +1881,7 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
     L = np.sum([
         np.sum(frame.posterior*state.likelihood) + np.sum(frame.posterior*datum.extra_log_probability)
         for datum, state, frame in zip(data, states, frames)
-    ]) / np.sum([datum.L for datum in data])
+    ]) / np.sum([datum.transcript_length for datum in data])
     dL = np.inf
 
     # iterate till convergence
@@ -1911,7 +1911,7 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
         newL = np.sum([
             np.sum(frame.posterior*state.likelihood) + np.sum(frame.posterior*datum.extra_log_probability)
             for datum,state,frame in zip(data,states,frames)
-        ]) / np.sum([datum.L for datum in data])
+        ]) / np.sum([datum.transcript_length for datum in data])
 
         # Set change in likelihood and the likelihood for the next round
         dL, L = newL - L, newL
@@ -1957,7 +1957,7 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
         newL = np.sum([
             np.sum(frame.posterior*state.likelihood) + np.sum(frame.posterior*datum.extra_log_probability)
             for datum,state,frame in zip(data,states,frames)
-        ]) / np.sum([datum.L for datum in data])
+        ]) / np.sum([datum.transcript_length for datum in data])
 
         # Set change in likelihood and the likelihood for the next round
         dL, L = newL - L, newL
@@ -2005,7 +2005,7 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
         newL = np.sum([
             np.sum(frame.posterior*state.likelihood) + np.sum(frame.posterior*datum.extra_log_probability)
             for datum,state,frame in zip(data,states,frames)
-        ]) / np.sum([datum.L for datum in data])
+        ]) / np.sum([datum.transcript_length for datum in data])
 
         # Set change in likelihood and the likelihood for the next round
         dL, L = newL - L, newL
