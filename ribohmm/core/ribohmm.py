@@ -288,13 +288,13 @@ class Data:
                         )
 
         # check for infs or nans in log likelihood
-        if np.isnan(self.log_probability).any() or np.isinf(self.log_probability).any():
-            print('Warning: Inf/Nan in data log likelihood')
-            pdb.set_trace()
-
-        if np.isnan(self.extra_log_probability).any() or np.isinf(self.extra_log_probability).any():
-            print('Warning: Inf/Nan in extra log likelihood')
-            pdb.set_trace()
+        # if np.isnan(self.log_probability).any() or np.isinf(self.log_probability).any():
+        #     print('Warning: Inf/Nan in data log likelihood')
+        #     pdb.set_trace()
+        #
+        # if np.isnan(self.extra_log_probability).any() or np.isinf(self.extra_log_probability).any():
+        #     print('Warning: Inf/Nan in extra log likelihood')
+        #     pdb.set_trace()
     
     def compute_log_probability_(self, emission):
         self.log_likelihood = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
@@ -712,13 +712,13 @@ class State(object):
             self.pos_cross_moment_start[f, 0, 0] = 0
             self.pos_cross_moment_start[f, 0, 1] = 0
 
-        if np.isnan(self.pos_first_moment).any() or np.isinf(self.pos_first_moment).any():
-            print('Warning: Inf/Nan in first moment')
-            pdb.set_trace()
-
-        if np.isnan(self.pos_cross_moment_start).any() or np.isinf(self.pos_cross_moment_start).any():
-            print('Warning: Inf/Nan in start cross moment')
-            pdb.set_trace()
+        # if np.isnan(self.pos_first_moment).any() or np.isinf(self.pos_first_moment).any():
+        #     print('Warning: Inf/Nan in first moment')
+        #     pdb.set_trace()
+        #
+        # if np.isnan(self.pos_cross_moment_start).any() or np.isinf(self.pos_cross_moment_start).any():
+        #     print('Warning: Inf/Nan in start cross moment')
+        #     pdb.set_trace()
 
     def new_decode(self, data, transition):
         P = logistic(-1 * (transition['seqparam']['kozak'] * data.codon_map['kozak']
@@ -1317,7 +1317,7 @@ class Emission(object):
                 for j in range(3):
                     At[j] = np.sum([
                         frame.posterior[f] * np.sum([
-                            state.pos_first_moment[f, m, s] * datum.obs[3 * m + f + j,r]
+                            state.pos_first_moment[f, m, s] * datum.riboseq_pileup[3 * m + f + j,r]
                             for m in np.where(np.any(datum.missingness_type[r, f, :] == index[:, j:j + 1], 0))[0]
                         ]) for datum, state, frame in zip(data, states, frames)
                         for f in range(3)
@@ -1409,7 +1409,7 @@ class Emission(object):
                 denom[r,0] = denom[r,0] + np.sum(frame.posterior * \
                              np.array([datum.is_pos_mappable[:f,r].sum() for f in range(3)]))
                 denom[r,8] = denom[r,8] + np.sum(frame.posterior * \
-                             np.array([datum.is_pos_mappable[3*datum.M+f:,r].sum() for f in range(3)]))
+                             np.array([datum.is_pos_mappable[3*datum.n_triplets+f:,r].sum() for f in range(3)]))
 
         while reldiff>reltol:
 
@@ -1499,18 +1499,18 @@ class Emission(object):
                         if datum.is_pos_mappable[l,r]:
                             newbeta[r,0] = newbeta[r,0] + frame.posterior[f] * \
                                            ((utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]) - \
-                                             digamma(datum.obs[l,r]+self.rate_alpha[r,0]*beta[r,0])) + \
-                                            (datum.obs[l,r]+self.rate_alpha[r,0]*beta[r,0]) / \
+                                             digamma(datum.riboseq_pileup[l,r]+self.rate_alpha[r,0]*beta[r,0])) + \
+                                            (datum.riboseq_pileup[l,r]+self.rate_alpha[r,0]*beta[r,0]) / \
                                             self.rate_alpha[r,0]/(datum.transcript_normalization_factor/3.+beta[r,0]))
 
                     # add extra terms for last state
-                    # for l from 3*datum.M+f <= l < datum.L:
-                    for l in range(3*datum.M+f, datum.L):
+                    # for l from 3*datum.n_triplets+f <= l < datum.transcript_length:
+                    for l in range(3*datum.n_triplets+f, datum.transcript_length):
                         if datum.is_pos_mappable[l,r]:
                             newbeta[r,8] = newbeta[r,8] + frame.posterior[f] * \
                                            ((utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]) - \
-                                             digamma(datum.obs[l,r]+self.rate_alpha[r,8]*beta[r,8])) + \
-                                            (datum.obs[l,r]+self.rate_alpha[r,8]*beta[r,8]) / \
+                                             digamma(datum.riboseq_pileup[l,r]+self.rate_alpha[r,8]*beta[r,8])) + \
+                                            (datum.riboseq_pileup[l,r]+self.rate_alpha[r,8]*beta[r,8]) / \
                                             self.rate_alpha[r,8]/(datum.transcript_normalization_factor/3.+beta[r,8]))
 
         newbeta = np.exp(newbeta / denom + digamma(self.rate_alpha*beta) - 1)
@@ -1735,21 +1735,21 @@ def alpha_func_grad(x, data, states, frames, rescale, beta):
                 for l  in range(f):
                     if datum.is_pos_mappable[l,r]:
                         func = func + frame.posterior[f] * (x[r,0] * beta[r,0] * utils.nplog(beta[r, 0]) +
-                                                            gammaln(datum.obs[l,r]+x[r,0]*beta[r,0]) - gammaln(x[r,0]*beta[r,0]) -
-                                                            (datum.obs[l,r]+x[r,0]*beta[r,0]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]))
+                                                            gammaln(datum.riboseq_pileup[l,r]+x[r,0]*beta[r,0]) - gammaln(x[r,0]*beta[r,0]) -
+                                                            (datum.riboseq_pileup[l,r]+x[r,0]*beta[r,0]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]))
                         gradient[r,0] = gradient[r,0] + frame.posterior[f] * beta[r,0] * (utils.nplog(beta[r, 0]) +
-                                                                                          digamma(datum.obs[l,r]+x[r,0]*beta[r,0]) - digamma(x[r,0]*beta[r,0]) -
+                                                                                          digamma(datum.riboseq_pileup[l,r]+x[r,0]*beta[r,0]) - digamma(x[r,0]*beta[r,0]) -
                                                                                           utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]))
 
                 # add extra terms for last state
-                # for l from 3*datum.M+f <= l < datum.L:
-                for l in range(3*datum.M+f, datum.L):
+                # for l from 3*datum.n_triplets+f <= l < datum.transcript_length:
+                for l in range(3*datum.n_triplets+f, datum.transcript_length):
                     if datum.is_pos_mappable[l,r]:
                         func = func + frame.posterior[f] * (x[r,8] * beta[r,8] * utils.nplog(beta[r, 8]) +
-                                                            gammaln(datum.obs[l,r]+x[r,8]*beta[r,8]) - gammaln(x[r,8]*beta[r,8]) -
-                                                            (datum.obs[l,r]+x[r,8]*beta[r,8]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]))
+                                                            gammaln(datum.riboseq_pileup[l,r]+x[r,8]*beta[r,8]) - gammaln(x[r,8]*beta[r,8]) -
+                                                            (datum.riboseq_pileup[l,r]+x[r,8]*beta[r,8]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]))
                         gradient[r,8] = gradient[r,8] + frame.posterior[f] * beta[r,8] * (utils.nplog(beta[r, 8]) +
-                                                                                          digamma(datum.obs[l,r]+x[r,8]*beta[r,8]) - digamma(x[r,8]*beta[r,8]) -
+                                                                                          digamma(datum.riboseq_pileup[l,r]+x[r,8]*beta[r,8]) - digamma(x[r,8]*beta[r,8]) -
                                                                                           utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]))
 
     func = -1.*func
@@ -1808,27 +1808,27 @@ def alpha_func_grad_hess(x, data, states, frames, rescale, beta):
                 for l in range(f):
                     if datum.is_pos_mappable[l,r]:
                         func = func + frame.posterior[f] * (x[r,0] * beta[r,0] * utils.nplog(beta[r, 0]) + \
-                                                            gammaln(datum.obs[l,r]+x[r,0]*beta[r,0]) - gammaln(x[r,0]*beta[r,0]) - \
-                                                            (datum.obs[l,r]+x[r,0]*beta[r,0]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]))
+                                                            gammaln(datum.riboseq_pileup[l,r]+x[r,0]*beta[r,0]) - gammaln(x[r,0]*beta[r,0]) - \
+                                                            (datum.riboseq_pileup[l,r]+x[r,0]*beta[r,0]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]))
                         gradient[r,0] = gradient[r,0] + frame.posterior[f] * beta[r,0] * (utils.nplog(beta[r, 0]) + \
-                                                                                          digamma(datum.obs[l,r]+x[r,0]*beta[r,0]) - digamma(x[r,0]*beta[r,0]) - \
+                                                                                          digamma(datum.riboseq_pileup[l,r]+x[r,0]*beta[r,0]) - digamma(x[r,0]*beta[r,0]) - \
                                                                                           utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 0]))
                         hessian[r,0] = hessian[r,0] + frame.posterior[f] * beta[r,0]**2 * \
-                                       (polygamma(1,datum.obs[l,r]+x[r,0]*beta[r,0]) - \
+                                       (polygamma(1,datum.riboseq_pileup[l,r]+x[r,0]*beta[r,0]) - \
                                        polygamma(1,x[r,0]*beta[r,0]))
 
                 # add extra terms for last state
-                # for l from 3*datum.M+f <= l < datum.L:
-                for l in range(3*datum.M+f, datum.L):
+                # for l from 3*datum.n_triplets+f <= l < datum.transcript_length:
+                for l in range(3*datum.n_triplets+f, datum.transcript_length):
                     if datum.is_pos_mappable[l,r]:
                         func = func + frame.posterior[f] * (x[r,8] * beta[r,8] * utils.nplog(beta[r, 8]) + \
-                                                            gammaln(datum.obs[l,r]+x[r,8]*beta[r,8]) - gammaln(x[r,8]*beta[r,8]) - \
-                                                            (datum.obs[l,r]+x[r,8]*beta[r,8]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]))
+                                                            gammaln(datum.riboseq_pileup[l,r]+x[r,8]*beta[r,8]) - gammaln(x[r,8]*beta[r,8]) - \
+                                                            (datum.riboseq_pileup[l,r]+x[r,8]*beta[r,8]) * utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]))
                         gradient[r,8] = gradient[r,8] + frame.posterior[f] * beta[r,8] * (utils.nplog(beta[r, 8]) + \
-                                                                                          digamma(datum.obs[l,r]+x[r,8]*beta[r,8]) - digamma(x[r,8]*beta[r,8]) - \
+                                                                                          digamma(datum.riboseq_pileup[l,r]+x[r,8]*beta[r,8]) - digamma(x[r,8]*beta[r,8]) - \
                                                                                           utils.nplog(datum.transcript_normalization_factor / 3. + beta[r, 8]))
                         hessian[r,8] = hessian[r,8] + frame.posterior[f] * beta[r,8]**2 * \
-                                       (polygamma(1,datum.obs[l,r]+x[r,8]*beta[r,8]) - \
+                                       (polygamma(1,datum.riboseq_pileup[l,r]+x[r,8]*beta[r,8]) - \
                                        polygamma(1,x[r,8]*beta[r,8]))
 
     func = -1.*func
