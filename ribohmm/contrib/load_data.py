@@ -177,10 +177,30 @@ class RnaSeq():
                 chrom, start, stop, asite_count, strandedness, _ = count_record.split('\t')
                 count_pos = int(start) - transcript.start
                 if mask[count_pos]:
+                    # counts = 1
+                    # counts += 1
                     counts += int(asite_count)
 
             total_counts.append(max(1, counts) * 1e6 / (transcript.L * self.total))
 
+        print('!!!!!!!!!!!!!!')
+        print(np.array(total_counts))
+        total_counts_n = np.array(total_counts)
+        # with open('rnaseq_total_counts.tsv', 'a') as out:
+        #     out.write(','.join(['count+=asite_count'] + [str(t) for t in total_counts]) + '\n')
+        from numpy import percentile
+        quartiles = percentile(total_counts_n, [25, 50, 75])
+        print('Max: {}'.format(total_counts_n.max()))
+        print('75th: {}'.format(quartiles[2]))
+        print('Median: {}'.format(quartiles[1]))
+        print('25th: {}'.format(quartiles[0]))
+        print('Min: {}'.format(total_counts_n.min()))
+        print('Mean: {}'.format(total_counts_n.mean()))
+        print('Variance: {}'.format(total_counts_n.var()))
+        print('Std dev: {}'.format(total_counts_n.std()))
+
+
+        print('!!!!!!!!!!!!!!')
         return np.array(total_counts)
 
     def close(self):
@@ -232,6 +252,10 @@ class Transcript():
         self.ref_transcript_id = attrs.get('reference_id')
         self.ref_gene_id = attrs.get('ref_gene_id')
         self.genename = attrs.get('ref_gene_name')
+
+    def __str__(self):
+        return (f'gene_name: {self.genename}, chr: {self.chromosome}, start: {self.start}, stop: {self.stop}, '
+                f'strand: {self.strand}, transcript_id: {self.id}, raw_attrs: {self.raw_attrs}')
 
     def add_exon(self, start, stop):
         self.exons.append((int(start), int(stop)))

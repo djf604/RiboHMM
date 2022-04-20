@@ -88,6 +88,8 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
     # transcripts = select_transcripts(options)
     """Won't T = options.batch always? I guess it could be less"""
     print('{} transcripts selected'.format(len(transcripts)))
+    # transcripts = transcripts[:15]
+    # transcripts = [transcripts[0], transcripts[7], transcripts[9], transcripts[12], transcripts[13]]
 
     # load sequence of transcripts and transform sequence data
     codon_flags, total_bases = list(), 0

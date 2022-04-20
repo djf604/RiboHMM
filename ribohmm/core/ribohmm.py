@@ -17,6 +17,17 @@ solvers.options['maxiters'] = 300
 solvers.options['show_progress'] = False
 CandidateCDS = namedtuple('CandidateCDS', 'frame start stop')
 
+
+def remove_from_list(lst, idx):
+    print(f'Deleting {len(idx)} indices')
+    for index in sorted(idx, reverse=True):
+        del lst[index]
+
+
+class InfinityException(Exception):
+    pass
+
+
 def logistic(x):
     return 1 / (1 + np.exp(x))
 
@@ -288,13 +299,15 @@ class Data:
                         )
 
         # check for infs or nans in log likelihood
-        # if np.isnan(self.log_probability).any() or np.isinf(self.log_probability).any():
-        #     print('Warning: Inf/Nan in data log likelihood')
-        #     pdb.set_trace()
-        #
-        # if np.isnan(self.extra_log_probability).any() or np.isinf(self.extra_log_probability).any():
-        #     print('Warning: Inf/Nan in extra log likelihood')
-        #     pdb.set_trace()
+        if np.isnan(self.log_probability).any() or np.isinf(self.log_probability).any():
+            print('Warning: Inf/Nan in data log likelihood')
+            raise InfinityException()
+            # pdb.set_trace()
+
+        if np.isnan(self.extra_log_probability).any() or np.isinf(self.extra_log_probability).any():
+            print('Warning: Inf/Nan in extra log likelihood')
+            raise InfinityException()
+            # pdb.set_trace()
     
     def compute_log_probability_(self, emission):
         self.log_likelihood = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
@@ -368,15 +381,17 @@ class Data:
         self.extra_log_probability = self.extra_log_likelihood
 
    
-        # if np.isnan(self.log_likelihood).any() \
-        # or np.isinf(self.log_likelihood).any():
-        #     print("Warning: Inf/Nan in data log likelihood")
-        #     pdb.set_trace()
-        #
-        # if np.isnan(self.extra_log_likelihood).any() \
-        # or np.isinf(self.extra_log_likelihood).any():
-        #     print("Warning: Inf/Nan in extra log likelihood")
-        #     pdb.set_trace()
+        if np.isnan(self.log_likelihood).any() \
+        or np.isinf(self.log_likelihood).any():
+            print("Warning: Inf/Nan in data log likelihood")
+            raise InfinityException()
+            # pdb.set_trace()
+
+        if np.isnan(self.extra_log_likelihood).any() \
+        or np.isinf(self.extra_log_likelihood).any():
+            print("Warning: Inf/Nan in extra log likelihood")
+            raise InfinityException()
+            # pdb.set_trace()
 
     def compute_observed_pileup_deviation(self, emission, return_sorted=True):
         """
@@ -638,9 +653,10 @@ class State(object):
 
                 self.likelihood[triplet_i, frame_i] = normalized_new_alpha
 
-        # if np.isnan(self.alpha).any() or np.isinf(self.alpha).any():
-        #     print('Warning: Inf/Nan in forward update step')
-        #     pdb.set_trace()
+        if np.isnan(self.alpha).any() or np.isinf(self.alpha).any():
+            print('Warning: Inf/Nan in forward update step')
+            raise InfinityException()
+            # pdb.set_trace()
 
     def _reverse_update(self, data, transition):
         swapidx = np.array([1, 2, 3, 5, 6, 7]).astype(np.uint8)
@@ -712,13 +728,17 @@ class State(object):
             self.pos_cross_moment_start[f, 0, 0] = 0
             self.pos_cross_moment_start[f, 0, 1] = 0
 
-        # if np.isnan(self.pos_first_moment).any() or np.isinf(self.pos_first_moment).any():
-        #     print('Warning: Inf/Nan in first moment')
-        #     pdb.set_trace()
-        #
-        # if np.isnan(self.pos_cross_moment_start).any() or np.isinf(self.pos_cross_moment_start).any():
-        #     print('Warning: Inf/Nan in start cross moment')
-        #     pdb.set_trace()
+        if np.isnan(self.pos_first_moment).any() or np.isinf(self.pos_first_moment).any():
+            print('Warning: Inf/Nan in first moment')
+            # pdb.set_trace()
+            raise InfinityException()
+            return False
+
+        if np.isnan(self.pos_cross_moment_start).any() or np.isinf(self.pos_cross_moment_start).any():
+            print('Warning: Inf/Nan in start cross moment')
+            # pdb.set_trace()
+            raise InfinityException()
+            return False
 
     def new_decode(self, data, transition):
         P = logistic(-1 * (transition['seqparam']['kozak'] * data.codon_map['kozak']
@@ -1869,13 +1889,17 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
     emission = Emission(scale_beta, read_lengths)
 
     # compute initial log likelihood
-    for datum, state, frame in zip(data, states, frames):
-
-        datum.compute_log_probability(emission)
-
-        state._forward_update(datum, transition)
-
-        frame.update(datum, state)
+    transcript_with_inf_idx = set()
+    for i, (datum, state, frame) in enumerate(zip(data, states, frames)):
+        try:
+            datum.compute_log_probability(emission)
+            state._forward_update(datum, transition)
+            frame.update(datum, state)
+        except InfinityException:
+            transcript_with_inf_idx.add(i)
+    remove_from_list(data, transcript_with_inf_idx)
+    remove_from_list(states, transcript_with_inf_idx)
+    remove_from_list(frames, transcript_with_inf_idx)
 
     # L is log likelihood
     L = np.sum([
@@ -1890,8 +1914,17 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
 
         starttime = time.time()
 
-        for state, datum in zip(states, data):
-            state._reverse_update(datum, transition)
+        transcript_with_inf_idx = set()
+        for i, (state, datum) in enumerate(zip(states, data)):
+            try:
+                state._reverse_update(datum, transition)
+            except InfinityException:
+                transcript_with_inf_idx.add(i)
+        remove_from_list(data, transcript_with_inf_idx)
+        remove_from_list(states, transcript_with_inf_idx)
+        remove_from_list(frames, transcript_with_inf_idx)
+
+
 
         # update periodicity parameters
         emission.update_periodicity(data, states, frames)
@@ -1900,13 +1933,17 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
         transition.update(data, states, frames)
 
         # compute log likelihood
-        for datum, state, frame in zip(data,states,frames):
-
-            datum.compute_log_probability(emission)
-
-            state._forward_update(datum, transition)
-
-            frame.update(datum, state)
+        transcript_with_inf_idx = set()
+        for i, (datum, state, frame) in enumerate(zip(data, states, frames)):
+            try:
+                datum.compute_log_probability(emission)
+                state._forward_update(datum, transition)
+                frame.update(datum, state)
+            except InfinityException:
+                transcript_with_inf_idx.add(i)
+        remove_from_list(data, transcript_with_inf_idx)
+        remove_from_list(states, transcript_with_inf_idx)
+        remove_from_list(frames, transcript_with_inf_idx)
 
         newL = np.sum([
             np.sum(frame.posterior*state.likelihood) + np.sum(frame.posterior*datum.extra_log_probability)
@@ -1925,43 +1962,85 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
     print('Stage 2: allow only AUG start codons; update all parameters ...')
     dL = np.inf
     reltol = dL/np.abs(L)
+    loop_i = 0
     while np.abs(reltol) > mintol:
+        loop_i += 1
+        print(f'Entering loop {loop_i}')
 
         starttime = time.time()
 
         # update latent states
-        for state, datum in zip(states, data):
-
-            state._reverse_update(datum, transition)
+        print('Updating latent states')
+        starttime_ = time.time()
+        transcript_with_inf_idx = set()
+        for i, (state, datum) in enumerate(zip(states, data)):
+            try:
+                state._reverse_update(datum, transition)
+            except InfinityException:
+                transcript_with_inf_idx.add(i)
+        print(f'Elapsed time: {time.time() - starttime_}')
+        remove_from_list(data, transcript_with_inf_idx)
+        remove_from_list(states, transcript_with_inf_idx)
+        remove_from_list(frames, transcript_with_inf_idx)
 
         # update periodicity parameters
+        print('Updating periodicity parameters')
+        starttime_ = time.time()
         emission.update_periodicity(data, states, frames)
+        print(f'Elapsed time: {time.time() - starttime_}')
 
         # update occupancy parameters
+        print('Updating occupancy parameters, alpha')
+        starttime_ = time.time()
         emission.update_alpha(data, states, frames)
-
+        print(f'Elapsed time: {time.time() - starttime_}')
+        print('Updating occupancy parameters, beta')
+        starttime_ = time.time()
         emission.update_beta(data, states, frames, 1e-3)
+        print(f'Elapsed time: {time.time() - starttime_}')
 
         # update transition parameters
+        print('Updating transition parameters')
         transition.update(data, states, frames)
+        print(f'Elapsed time: {time.time() - starttime_}')
 
         # compute log likelihood
-        for datum, state, frame in zip(data, states, frames):
+        transcript_with_inf_idx = set()
+        for j, (datum, state, frame) in enumerate(zip(data, states, frames)):
+            try:
+                print(f'Computing log likelihood, loop {j}')
+                starttime_ = time.time()
+                datum.compute_log_probability(emission)
+                print(f'Elapsed time: {time.time() - starttime_}')
+                print('State.forward_update')
+                starttime_ = time.time()
+                state._forward_update(datum, transition)
+                print(f'Elapsed time: {time.time() - starttime_}')
 
-            datum.compute_log_probability(emission)
+                print('Frame update')
+                starttime_ = time.time()
+                frame.update(datum, state)
+                print(f'Elapsed time: {time.time() - starttime_}')
+            except InfinityException:
+                transcript_with_inf_idx.add(j)
+        remove_from_list(data, transcript_with_inf_idx)
+        remove_from_list(states, transcript_with_inf_idx)
+        remove_from_list(frames, transcript_with_inf_idx)
 
-            state._forward_update(datum, transition)
-
-            frame.update(datum, state)
-
+        print('Combining sum')
+        starttime_ = time.time()
         newL = np.sum([
             np.sum(frame.posterior*state.likelihood) + np.sum(frame.posterior*datum.extra_log_probability)
             for datum,state,frame in zip(data,states,frames)
         ]) / np.sum([datum.transcript_length for datum in data])
+        print(f'Elapsed time: {time.time() - starttime_}')
 
         # Set change in likelihood and the likelihood for the next round
+        print('Set change in likelihood')
+        starttime_ = time.time()
         dL, L = newL - L, newL
         reltol = dL / np.abs(L)
+        print(f'Elapsed time: {time.time() - starttime_}')
 
         # print L, reltol, time.time()-starttime
         print('\nLoss: {}'.format(L))
@@ -1975,11 +2054,16 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
     transition.seqparam['start'][2:] = -3 + np.random.rand(transition.seqparam['start'][2:].size)
 
     # Initial log likelihood again?
-    for datum, state, frame in zip(data, states, frames):
-
-        state._forward_update(datum, transition)
-
-        frame.update(datum, state)
+    transcript_with_inf_idx = set()
+    for i, (datum, state, frame) in enumerate(zip(data, states, frames)):
+        try:
+            state._forward_update(datum, transition)
+            frame.update(datum, state)
+        except InfinityException:
+            transcript_with_inf_idx.add(i)
+    remove_from_list(data, transcript_with_inf_idx)
+    remove_from_list(states, transcript_with_inf_idx)
+    remove_from_list(frames, transcript_with_inf_idx)
 
     dL = np.inf
     reltol = dL / np.abs(L)
@@ -1989,18 +2073,32 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
 
         # update latent variables
         starttime = time.time()
-        for state,datum in zip(states, data):
-            state._reverse_update(datum, transition)
+        transcript_with_inf_idx = set()
+        for i, (state, datum) in enumerate(zip(states, data)):
+            try:
+                state._reverse_update(datum, transition)
+            except InfinityException:
+                transcript_with_inf_idx.add(i)
+        remove_from_list(data, transcript_with_inf_idx)
+        remove_from_list(states, transcript_with_inf_idx)
+        remove_from_list(frames, transcript_with_inf_idx)
 
         # update transition parameters for noncanonical codons
         transition.update(data, states, frames)
 
         # compute log likelihood
-        for datum, state, frame in zip(data, states, frames):
+        transcript_with_inf_idx = set()
+        for i, (datum, state, frame) in enumerate(zip(data, states, frames)):
+            try:
+                state._forward_update(datum, transition)
+                frame.update(datum, state)
+            except InfinityException:
+                transcript_with_inf_idx.add(i)
+        remove_from_list(data, transcript_with_inf_idx)
+        remove_from_list(states, transcript_with_inf_idx)
+        remove_from_list(frames, transcript_with_inf_idx)
 
-            state._forward_update(datum, transition)
-
-            frame.update(datum, state)
+        print(f'{len(data)} transcripts made it to the end')
 
         newL = np.sum([
             np.sum(frame.posterior*state.likelihood) + np.sum(frame.posterior*datum.extra_log_probability)
