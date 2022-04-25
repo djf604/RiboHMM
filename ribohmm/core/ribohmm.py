@@ -9,6 +9,8 @@ import time, pdb
 from ribohmm import utils
 from ribohmm.utils import Mappability, States
 
+from concurrent.futures import ProcessPoolExecutor, wait
+
 from collections import namedtuple
 import logging
 logger = logging.getLogger('viterbi_log')
@@ -16,6 +18,16 @@ logger = logging.getLogger('viterbi_log')
 solvers.options['maxiters'] = 300
 solvers.options['show_progress'] = False
 CandidateCDS = namedtuple('CandidateCDS', 'frame start stop')
+
+
+
+def one(i, datum, state, frame, emission, transition):
+    try:
+        datum.compute_log_probability(emission)
+        state._forward_update(datum, transition)
+        frame.update(datum, state)
+    except InfinityException:
+        return i
 
 
 def remove_from_list(lst, idx):
@@ -529,8 +541,8 @@ class Frame(object):
         self.posterior = np.exp(self.posterior)
         self.posterior = self.posterior / self.posterior.sum()
 
-    def __reduce__(self):
-        return (rebuild_Frame, (self.posterior,))
+    # def __reduce__(self):
+    #     return (rebuild_Frame, (self.posterior,))
 
 def rebuild_Frame(pos):
     f = Frame()
@@ -542,7 +554,7 @@ class State(object):
     
     def __init__(self, n_triplets):
 
-        # number of triplets
+        # number of triplets (self.M)
         self.n_triplets = n_triplets
         # number of states for the HMM
         self.n_states = 9
@@ -994,8 +1006,8 @@ class State(object):
 
         return posterior
 
-    def __reduce__(self):
-        return (rebuild_State, (self.best_start, self.best_stop, self.max_posterior, self.M))
+    # def __reduce__(self):
+    #     return (rebuild_State, (self.best_start, self.best_stop, self.max_posterior, self.n_triplets))
 
 def rebuild_State(bstart, bstop, mposterior, M):
     s = State(M)
@@ -1078,8 +1090,8 @@ class Transition(object):
             # if any error is thrown, skip updating at this iteration
             pass
 
-    def __reduce__(self):
-        return (rebuild_Transition, (self.seqparam,self.restrict))
+    # def __reduce__(self):
+    #     return (rebuild_Transition, (self.seqparam,self.restrict))
 
 def rebuild_Transition(seqparam, restrict):
     t = Transition()
@@ -1560,8 +1572,8 @@ class Emission(object):
             # if any error is thrown, skip updating at this iteration
             pass
 
-    def __reduce__(self):
-        return (rebuild_Emission, (self.periodicity, self.rate_alpha, self.rate_beta))
+    # def __reduce__(self):
+    #     return (rebuild_Emission, (self.periodicity, self.rate_alpha, self.rate_beta))
 
 def rebuild_Emission(periodicity, alpha, beta):
     e = Emission()
@@ -1888,18 +1900,36 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
     transition = Transition()
     emission = Emission(scale_beta, read_lengths)
 
-    # compute initial log likelihood
-    transcript_with_inf_idx = set()
-    for i, (datum, state, frame) in enumerate(zip(data, states, frames)):
-        try:
-            datum.compute_log_probability(emission)
-            state._forward_update(datum, transition)
-            frame.update(datum, state)
-        except InfinityException:
-            transcript_with_inf_idx.add(i)
+    futs = list()
+    with ProcessPoolExecutor(max_workers=1) as executor:
+        for i, (datum, state, frame) in enumerate(zip(data, states, frames)):
+            futs.append(executor.submit(one, i, datum, state, frame, emission, transition))
+    wait(futs)
+    # print(futs[0])
+    # print(futs[0].result)
+    # print(futs[0].result())
+    t = [f.result() for f in futs]
+    transcript_with_inf_idx = [f for f in t if f is not None]
+    # transcript_with_inf_idx = [f.result() for f in futs if f.result() is not None]
+    print('$$$$$$$$$')
+    print(transcript_with_inf_idx)
     remove_from_list(data, transcript_with_inf_idx)
     remove_from_list(states, transcript_with_inf_idx)
     remove_from_list(frames, transcript_with_inf_idx)
+
+
+    # compute initial log likelihood
+    # transcript_with_inf_idx = set()
+    # for i, (datum, state, frame) in enumerate(zip(data, states, frames)):
+    #     try:
+    #         datum.compute_log_probability(emission)
+    #         state._forward_update(datum, transition)
+    #         frame.update(datum, state)
+    #     except InfinityException:
+    #         transcript_with_inf_idx.add(i)
+    # remove_from_list(data, transcript_with_inf_idx)
+    # remove_from_list(states, transcript_with_inf_idx)
+    # remove_from_list(frames, transcript_with_inf_idx)
 
     # L is log likelihood
     L = np.sum([
