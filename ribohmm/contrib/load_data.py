@@ -233,6 +233,11 @@ class Transcript():
         self.ref_gene_id = attrs.get('ref_gene_id')
         self.genename = attrs.get('ref_gene_name')
 
+    def __str__(self):
+        return (f'gene_name: {self.genename}, chr: {self.chromosome}, start: {self.start}, stop: {self.stop}, '
+                f'strand: {self.strand}, transcript_id: {self.id}, raw_attrs: {self.raw_attrs}')
+
+
     def add_exon(self, start, stop):
         self.exons.append((int(start), int(stop)))
 
