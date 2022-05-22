@@ -86,7 +86,7 @@ def select_transcripts(options):
     transcript_models_dict = load_data.load_gtf(options.gtf_file)
     """This is a list of load_data.Transcript objects"""
     print('Getting Transcript objects')
-    transcript_models = transcript_models_dict.values()
+    transcript_models = list(transcript_models_dict.values())
     T = len(transcript_models)
 
     # get translation level in all transcripts
@@ -144,7 +144,7 @@ def select_transcripts(options):
 def learn(options):
 
     # select transcripts for learning parameters
-    transcripts = select_transcripts(options)
+    transcripts = select_transcripts(options)[:10]
     """Won't T = options.batch always? I guess it could be less"""
     T = len(transcripts)
     print("%d transcripts selected"%T)

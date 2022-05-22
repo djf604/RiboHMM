@@ -50,13 +50,13 @@ class RnaSequence(object):
         for f in range(3):  # TODO Python 2/3 compatibility
             for s in range(f,3*M+f,3):  # TODO Python 2/3
                 try:
-                    start_index[s/3,f] = STARTS[self.sequence[s+offset:s+offset+3]]
+                    start_index[int(s/3),f] = STARTS[self.sequence[s+offset:s+offset+3]]
                 except KeyError:
                     pass
                 for k in [3,6,9,12]:
                     try:
                         STOPS[self.sequence[s+offset+k:s+offset+3+k]]
-                        start_index[s/3,f] = 0
+                        start_index[int(s/3),f] = 0
                     except KeyError:
                         pass
 
@@ -77,7 +77,7 @@ class RnaSequence(object):
         for f in range(3):
             for s in range(f, 3*M+f, 3):
                 try:
-                    stop_index[s/3,f] = STOPS[self.sequence[s+offset:s+offset+3]]
+                    stop_index[int(s/3),f] = STOPS[self.sequence[s+offset:s+offset+3]]
                 except KeyError:
                     pass
 

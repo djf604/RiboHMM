@@ -108,7 +108,7 @@ def infer(options):
 
     # load transcripts
     transcript_models = load_data.load_gtf(options.gtf_file)
-    transcript_names = transcript_models.keys()
+    transcript_names = list(transcript_models.keys())
     N = len(transcript_names)
     n = int(np.ceil(N/1000))
     

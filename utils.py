@@ -57,7 +57,8 @@ CODON_AA_MAP = dict([('GCU','A'), ('GCC','A'), ('GCA','A'), ('GCG','A'), \
                  ('UAA','X'), ('UGA','X'), ('UAG','X')])
 
 translate = lambda seq: ''.join([
-    CODON_AA_MAP[seq[s:s+3]] if CODON_AA_MAP.has_key(seq[s:s+3]) else 'X'
+    CODON_AA_MAP[seq[s:s+3]] if seq[s:s+3] in CODON_AA_MAP else 'X'
+    # CODON_AA_MAP[seq[s:s+3]] if CODON_AA_MAP.has_key(seq[s:s+3]) else 'X'
     for s in range(0,len(seq),3)
 ])
 

@@ -664,10 +664,13 @@ class Transition(object):
         self.seqparam['stop'] = utils.MAX*np.ones((4,), dtype=np.float64)
         self.seqparam['stop'][0] = utils.MIN
 
+    def __getitem__(self, item):
+        return self.__dict__[item]
+
     def _serialize(self):
         return {
             'seqparam': {
-                'kozak': list(self.seqparam['kozak']),
+                'kozak': self.seqparam['kozak'],
                 'start': list(self.seqparam['start']),
                 'stop': list(self.seqparam['stop'])
             }
@@ -915,6 +918,9 @@ class Emission(object):
 
         self.compute_rescaling()
 
+    def __getitem__(self, item):
+        return self.__dict__[item]
+
     def _serialize(self):
         return {
             'S': self.S,
@@ -1014,7 +1020,7 @@ class Emission(object):
 
             for s in range(self.S):
 
-                for j,mask in utils.binarize.iteritems():
+                for j,mask in utils.binarize.items():
                 
                     self.rescale[r,s,j] = np.sum(self.periodicity[r,s,mask])
 
