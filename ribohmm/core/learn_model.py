@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 import logging
 import time
@@ -143,7 +144,7 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
 
     # run the learning algorithm
     print('About to run learn_parameters')
-    transition, emission, L = ribohmm.learn_parameters(
+    transition, emission, L, all_data = ribohmm.learn_parameters(
         footprint_counts,
         codon_flags,
         rna_counts,
@@ -152,6 +153,30 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
         mintol,
         read_lengths
     )
+
+    results = [
+        {
+            'transcript_info': {
+                'chr': t.chromosome,
+                'start': t.start,
+                'stop': t.stop,
+                'strand': t.strand,
+                'length': t.stop - t.start + 1
+            },
+            'transcript_string': str(t.raw_attrs),
+            'exons': {
+                'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
+                'relative': t.exons
+            },
+            'data': {
+                'periodicity_prob': d.periodicity_probability,
+                'occupancy_prob': d.occupancy_probability
+            }
+        }
+        for t, d in zip(transcripts, all_data)
+    ]
+    with open('per_occu_results.json', 'w') as out:
+        json.dump(results, out)
 
     """
     Convert to JSON instead of pickling

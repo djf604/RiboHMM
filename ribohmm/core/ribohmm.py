@@ -138,6 +138,8 @@ class Data:
         # cdef np.ndarray[np.float64_t, ndim=2] rescale, log_probability, rate_log_probability
 
         self.log_probability = np.zeros((3, self.M, emission['S']), dtype=np.float64)
+        self.periodicity_probability = np.zeros((3, self.M, emission['S']), dtype=np.float64)
+        self.occupancy_probability = np.zeros((3, self.M, emission['S']), dtype=np.float64)
         self.extra_log_probability = np.zeros((3,), dtype=np.float64)
         # missingness-types where 1 out of 3 positions are unmappable
         misstypes = np.array([3,5,6,7]).reshape(4,1)
@@ -187,6 +189,8 @@ class Data:
                 mask = self.missingness_type[r, f, :] == 0
                 rate_log_probability[mask, :] = 0
                 self.log_probability[f] += log_probability + rate_log_probability
+                self.periodicity_probability[f] += log_probability
+                self.occupancy_probability[f] += rate_log_probability
 
                 # likelihood of extra positions in transcript
                 # for l from 0 <= l < f:
@@ -1730,7 +1734,7 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
         print('Relative tolerance (convergence): {} ({})'.format(reltol, mintol))
         print('Time in sec, this iteration: {}'.format(time.time() - starttime))
 
-    return transition, emission, L
+    return transition, emission, L, data
 
 def infer_coding_sequence(observations, codon_id, scales, mappability, transition, emission):
 
