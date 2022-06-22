@@ -215,6 +215,7 @@ class Transcript():
         self.chromosome = chrom if chrom.startswith('c') else 'chr{}'.format(chrom)
         self.start = int(start)
         self.stop = int(stop)
+        self.raw_attrs = attrs
 
         self.strand = strand if strand in {'+', '-'} else '.'
 

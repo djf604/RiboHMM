@@ -175,7 +175,7 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
         }
         for t, d in zip(transcripts, all_data)
     ]
-    with open('per_occu_results.json', 'w') as out:
+    with open('per_occu_learning_results.json', 'w') as out:
         json.dump(results, out)
 
     """

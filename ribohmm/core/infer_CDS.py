@@ -16,30 +16,6 @@ warnings.filterwarnings('ignore', '.*divide by zero.*',)
 warnings.filterwarnings('ignore', '.*invalid value.*',)
 
 
-
-check_out = ['ENST00000607058.1',
- 'ENST00000488123.2',
- 'ENST00000540040.1',
- 'ENST00000591551.1',
- 'ENST00000389680.2',
- 'ENST00000387347.2',
- 'ENST00000361390.2',
- 'ENST00000387405.1',
- 'ENST00000387409.1',
- 'ENST00000361624.2',
- 'ENST00000361739.1',
- 'ENST00000362079.2',
- 'ENST00000361335.1',
- 'ENST00000361381.2',
- 'ENST00000387441.1',
- 'ENST00000387449.1',
- 'ENST00000387456.1',
- 'ENST00000361567.2',
- 'ENST00000361681.2',
- 'ENST00000361789.2',
- 'ENST00000387460.2',
- 'ENST00000387461.2']
-
 def parse_args():
     parser = argparse.ArgumentParser(description=" infers the translated sequences "
                                      " from ribosome profiling data and RNA sequence data; "
@@ -92,11 +68,9 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
 
     # output is not a valid CDS
     if tis is None or tts is None:
-        if transcript.id in check_out:
-            print('{} write aborted, not valid'.format(transcript.id))
         return None
 
-    posterior = int(posteriors[index]*10000) 
+    posterior = int(posteriors[index]*10000)
     protein = utils.translate(rna_sequence[tis:tts])
     # identify TIS and TTS in genomic coordinates
     if transcript.strand=='+':
@@ -106,27 +80,25 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
         cdstart = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tts]
         cdstop = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tis]
 
-    towrite = [transcript.chromosome, 
-               transcript.start, 
-               transcript.stop, 
-               transcript.id, 
-               posterior, 
-               transcript.strand, 
-               cdstart, 
+    towrite = [transcript.chromosome,
+               transcript.start,
+               transcript.stop,
+               transcript.id,
+               posterior,
+               transcript.strand,
+               cdstart,
                cdstop,
-               protein, 
-               len(transcript.exons), 
-               ','.join(map(str,[e[1]-e[0] for e in transcript.exons]))+',', 
+               protein,
+               len(transcript.exons),
+               ','.join(map(str,[e[1]-e[0] for e in transcript.exons]))+',',
                ','.join(map(str,[transcript.start+e[0] for e in transcript.exons]))+',']
     handle.write(" ".join(map(str,towrite))+'\n')
-
-    if transcript.id in check_out:
-        print('{} write completed'.format(transcript.id))
 
     return None
 
 def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_prefix, ribo_track,
           rnaseq_track, output_directory):
+    pos_results, neg_results = list(), list()
 
     # load the model
     # handle = open(options.model_file, 'rb')
@@ -148,7 +120,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
     print('n: {}'.format(n))
     # with open('transcript_names.out', 'w') as tout:
     #     tout.write('\n'.join(transcript_names) + '\n')
-    
+
     # load data tracks
     # genome_track = load_data.Genome(genome_fasta, mappability_tabix_prefix)
     # ribo_track = load_data.RiboSeq(riboseq_tabix_prefix, read_lengths)
@@ -158,54 +130,10 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
     # open output file handle
     # file in bed12 format
     handle = open(os.path.join(output_directory, 'inferred_CDS.bed'), 'w')
-    towrite = ["chromosome", "start", "stop", "transcript_id", 
-               "posterior", "strand", "cdstart", "cdstop", 
+    towrite = ["chromosome", "start", "stop", "transcript_id",
+               "posterior", "strand", "cdstart", "cdstop",
                "protein_seq", "num_exons", "exon_sizes", "exon_starts"]
     handle.write(" ".join(map(str,towrite))+'\n')
-
-    from collections import Counter, defaultdict
-    written_out = Counter()
-    duplicates = defaultdict(list)
-
-    dups = {'ENST00000361567.2',
-             'ENST00000591551.1',
-             'ENST00000540040.1',
-             'ENST00000361681.2',
-             'ENST00000361624.2',
-             'ENST00000387347.2',
-            'ENST00000565981.1',
-            'ENST00000472787.1'}
-
-
-    good_transcript = 'ENST00000565981.1'
-    bad_transcript = 'ENST00000540040.1'
-
-
-
-    check_out = ['ENST00000607058.1',
- 'ENST00000488123.2',
- 'ENST00000540040.1',
- 'ENST00000591551.1',
- 'ENST00000389680.2',
- 'ENST00000387347.2',
- 'ENST00000361390.2',
- 'ENST00000387405.1',
- 'ENST00000387409.1',
- 'ENST00000361624.2',
- 'ENST00000361739.1',
- 'ENST00000362079.2',
- 'ENST00000361335.1',
- 'ENST00000361381.2',
- 'ENST00000387441.1',
- 'ENST00000387449.1',
- 'ENST00000387456.1',
- 'ENST00000361567.2',
- 'ENST00000361681.2',
- 'ENST00000361789.2',
- 'ENST00000387460.2',
- 'ENST00000387461.2']
-
-
 
     # Find exon counts for all transcripts, both pos and neg
     alltranscripts = [transcript_models[name] for name in transcript_names]
@@ -276,11 +204,6 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
 
         transcripts = [t for t,e in zip(alltranscripts,exon_counts) if np.all(e>=5)]
 
-
-        for c in check_out:
-            if c in [t.id for t in transcripts]:
-                print('{} made it past pos exon filter'.format(c))
-
         # in_good, in_bad = False, False
         # if good_transcript in [t.id for t in transcripts]:
         #     in_good = True
@@ -323,8 +246,29 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             #                        rna_counts, rna_mappability, transition, emission)
 
 
-            states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
+            states, frames, all_data = infer_coding_sequence(footprint_counts, codon_flags, \
                                                         rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
+            pos_results.extend([
+              {
+                'transcript_info': {
+                  'chr': t.chromosome,
+                  'start': t.start,
+                  'stop': t.stop,
+                  'strand': t.strand,
+                  'length': t.stop - t.start + 1
+                },
+                'transcript_string': str(t.raw_attrs),
+                'exons': {
+                  'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
+                  'relative': t.exons
+                },
+                'data': {
+                  'periodicity_prob': d.periodicity_probability.tolist(),
+                  'occupancy_prob': d.occupancy_probability.tolist()
+                }
+              }
+              for t, d in zip(transcripts, all_data)
+            ])
 
             # write results
             # ig = [write_inferred_cds(handle, transcript, state, frame, rna_sequence) \
@@ -347,14 +291,8 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
 
 
             for transcript,state,frame,rna_sequence in zip(transcripts,states,frames,rna_sequences):
-                if transcript.id in check_out:
-                    print('{} is being written out positive'.format(transcript.id))
-
-
-                duplicates[transcript.id].append(('positive_strand', transcript))
                 write_inferred_cds(handle, transcript, state, frame, rna_sequence)
                 pos_writes += 1
-                written_out[transcript.id] += 1
             # print('Positive strand writes: {}'.format(pos_writes))
 
 
@@ -369,10 +307,6 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
         # print('neg exon counts: {}'.format(len(exon_counts)))
         transcripts = [t for t,e in zip(alltranscripts,exon_counts) if np.all(e>=5)]
 
-
-        for c in check_out:
-            if c in [t.id for t in transcripts]:
-                print('{} made it past neg exon filter'.format(c))
 
         # in_good, in_bad = False, False
         # if good_transcript in [t.id for t in transcripts]:
@@ -418,47 +352,48 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             # run the learning algorithm
             # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
             #                        rna_counts, rna_mappability, transition, emission)
-            states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
+            states, frames, all_data = infer_coding_sequence(footprint_counts, codon_flags, \
                                                         rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
-
-            # write results
-            # ig = [write_inferred_cds(handle, transcript, state, frame, rna_sequence) \
-            #       for transcript,state,frame,rna_sequence in zip(transcripts,states,frames,rna_sequences)]
-
+            neg_results.extend([
+              {
+                'transcript_info': {
+                  'chr': t.chromosome,
+                  'start': t.start,
+                  'stop': t.stop,
+                  'strand': t.strand,
+                  'length': t.stop - t.start + 1
+                },
+                'transcript_string': str(t.raw_attrs),
+                'exons': {
+                  'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
+                  'relative': t.exons
+                },
+                'data': {
+                  'periodicity_prob': d.periodicity_probability.tolist(),
+                  'occupancy_prob': d.occupancy_probability.tolist()
+                }
+              }
+              for t, d in zip(transcripts, all_data)
+            ])
             neg_writes = 0
-            # print('Len of transcripts: {}'.format(len(transcripts)))
-            # print('Len of states: {}'.format(len(states)))
-            # print('Len of frames: {}'.format(len(frames)))
-            # print('Len of rna_sequences: {}'.format(len(rna_sequences)))
-
-            # neg_dups = [t.id for t in transcripts]
-            # for n in neg_dups:
-            #     if n in dups:
-            #         print('{} was neg about to be written at {}'.format(n, datetime.datetime.now().strftime(
-            #             '%Y-%m-%d %H:%M:%S')))
 
             for transcript, state, frame, rna_sequence in zip(transcripts, states, frames, rna_sequences):
-                if transcript.id in check_out:
-                    print('{} is being written out negative'.format(transcript.id))
-                duplicates[transcript.id].append(('minus_strand', transcript))
                 write_inferred_cds(handle, transcript, state, frame, rna_sequence)
                 neg_writes += 1
-                written_out[transcript.id] += 1
-            # print('Neg strand writes: {}'.format(neg_writes))
+
+        results = {
+          'pos': pos_results,
+          'neg': neg_results
+        }
+        print('Writing output for inference results')
+        with open('per_occu_inference_results.json', 'w') as out:
+          json.dump(results, out)
 
 
     handle.close()
     ribo_track.close()
-    # import json
-    import pickle
-
-    for k in list(duplicates.keys()):
-        if len(duplicates[k]) <= 1:
-            del duplicates[k]
 
 
-    with open('duplicates.pkl', 'wb') as dup_pickle:
-        pickle.dump(duplicates, dup_pickle)
 
     if rnaseq_track is not None:
         rnaseq_track.close()

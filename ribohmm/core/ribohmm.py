@@ -1779,5 +1779,5 @@ def infer_coding_sequence(observations, codon_id, scales, mappability, transitio
         frame.update(datum, state)
         state.decode(datum, transition, emission, frame)
 
-    return states, frames
+    return states, frames, data
 
