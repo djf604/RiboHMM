@@ -200,7 +200,8 @@ class RnaSeq():
                 chrom, start, stop, asite_count, strandedness, _ = count_record.split('\t')
                 count_pos = int(start) - transcript.start
                 if mask[count_pos]:
-                    counts += 1  # TODO This is pending input from Sidney, about whether we should add 1 or count
+                    #counts += 1  # TODO This is pending input from Sidney, about whether we should add 1 or count
+                    counts += int(asite_count)
 
             total_counts.append(max(1, counts) * 1e6 / (transcript.L * self.total))
 
