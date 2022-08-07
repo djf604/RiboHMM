@@ -89,6 +89,14 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
     index = np.argmax(posteriors)
     tis = state.best_start[index]
     tts = state.best_stop[index]
+    """
+    "chr11.102165790.102166537.+" "chr6.100023587.100024332.+"  "chr6.121974940.121975836.+"
+    """
+    is_transcript_of_interest = True
+    if is_transcript_of_interest:
+      print('Writing out transcript: {}'.format(transcript.id))
+      print('Best start: {}'.format(tis))
+      print('Best stop: {}'.format(tts))
 
     # output is not a valid CDS
     if tis is None or tts is None:
@@ -96,15 +104,22 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
             print('{} write aborted, not valid'.format(transcript.id))
         return None
 
-    posterior = int(posteriors[index]*10000) 
+    posterior = int(posteriors[index]*10000)
     protein = utils.translate(rna_sequence[tis:tts])
     # identify TIS and TTS in genomic coordinates
     if transcript.strand=='+':
         cdstart = transcript.start + np.where(transcript.mask)[0][tis]
         cdstop = transcript.start + np.where(transcript.mask)[0][tts]
+        if is_transcript_of_interest:
+          print('CDS Stop: {} + {}'.format(transcript.start, np.where(transcript.mask)[0][tts]))
     else:
         cdstart = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tts]
         cdstop = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tis]
+        if is_transcript_of_interest:
+          print('CDS Stop: {} + {} - {}'.format(transcript.start,
+                                              transcript.mask.size, np.where(transcript.mask)[0][tis]))
+
+
 
     towrite = [transcript.chromosome, 
                transcript.start, 
@@ -347,8 +362,8 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
 
 
             for transcript,state,frame,rna_sequence in zip(transcripts,states,frames,rna_sequences):
-                if transcript.id in check_out:
-                    print('{} is being written out positive'.format(transcript.id))
+                # if transcript.id in check_out:
+                #     print('{} is being written out positive'.format(transcript.id))
 
 
                 duplicates[transcript.id].append(('positive_strand', transcript))
