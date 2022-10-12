@@ -84,7 +84,7 @@ def parse_args():
 
     return options
 
-def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
+def write_inferred_cds(handle, transcript, state, frame, rna_sequence, datum):
 
 
     INCORRECT = {
@@ -159,17 +159,17 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
     "chr11.102165790.102166537.+" "chr6.100023587.100024332.+"  "chr6.121974940.121975836.+"
     """
     is_transcript_of_interest = True
-    if is_transcript_of_interest:
-      coord_id = '.'.join([
-        transcript.chromosome, str(transcript.start), str(transcript.stop), transcript.strand])
-      print('Writing out transcript: {} | {} | {} | index {}'.format(coord_id, transcript.id,
-          'CORRECT' if coord_id in CORRECT else 'INCORRECT' if coord_id in INCORRECT else 'UNKNOWN', index
-                                                          )
-      )
-      print('Best start: {}'.format(tis))
-      print('Best stop: {}'.format(tts))
-      print(f'Posteriors: {posteriors}')
-      print(f'Transcript info:\n{transcript}')
+
+    coord_id = '.'.join([
+      transcript.chromosome, str(transcript.start), str(transcript.stop), transcript.strand])
+    is_correct_transcript = 'CORRECT' if coord_id in CORRECT else 'INCORRECT' if coord_id in INCORRECT else 'UNKNOWN'
+    print('Writing out transcript: {} | {} | {} | index {}'.format(coord_id, transcript.id,
+          is_correct_transcript, index)
+    )
+    print('Best start: {}'.format(tis))
+    print('Best stop: {}'.format(tts))
+    print(f'Posteriors: {posteriors}')
+    print(f'Transcript info:\n{transcript}')
 
 
     # output is not a valid CDS
@@ -207,6 +207,11 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
       print('Frame {}:'.format(f))
       print(' | '.join(['{}: {}'.format(s, c[s]) for s in utils.STATES]))
     print(state.best_codon_log + '\n')
+
+    if is_correct_transcript == 'INCORRECT':
+      print(f'Likelihoods for frame {index}:')
+      print(datum.log_probability[index].tolist())
+      print('')
 
 
 
@@ -427,7 +432,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             #                        rna_counts, rna_mappability, transition, emission)
 
 
-            states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
+            data, states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
                                                         rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
 
             # write results
@@ -450,13 +455,13 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
 
 
 
-            for transcript,state,frame,rna_sequence in zip(transcripts,states,frames,rna_sequences):
+            for transcript,state,frame,rna_sequence, datum in zip(transcripts,states,frames,rna_sequences, data):
                 # if transcript.id in check_out:
                 #     print('{} is being written out positive'.format(transcript.id))
 
 
                 duplicates[transcript.id].append(('positive_strand', transcript))
-                write_inferred_cds(handle, transcript, state, frame, rna_sequence)
+                write_inferred_cds(handle, transcript, state, frame, rna_sequence, datum)
                 pos_writes += 1
                 written_out[transcript.id] += 1
             # print('Positive strand writes: {}'.format(pos_writes))
@@ -522,7 +527,7 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             # run the learning algorithm
             # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
             #                        rna_counts, rna_mappability, transition, emission)
-            states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
+            data, states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
                                                         rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
 
             # write results
@@ -541,11 +546,11 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             #         print('{} was neg about to be written at {}'.format(n, datetime.datetime.now().strftime(
             #             '%Y-%m-%d %H:%M:%S')))
 
-            for transcript, state, frame, rna_sequence in zip(transcripts, states, frames, rna_sequences):
+            for transcript, state, frame, rna_sequence, datum in zip(transcripts, states, frames, rna_sequences, data):
                 if transcript.id in check_out:
                     print('{} is being written out negative'.format(transcript.id))
                 duplicates[transcript.id].append(('minus_strand', transcript))
-                write_inferred_cds(handle, transcript, state, frame, rna_sequence)
+                write_inferred_cds(handle, transcript, state, frame, rna_sequence, datum)
                 neg_writes += 1
                 written_out[transcript.id] += 1
             # print('Neg strand writes: {}'.format(neg_writes))
