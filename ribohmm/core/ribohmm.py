@@ -499,6 +499,9 @@ class State(object):
         alpha = np.zeros((self.S,), dtype=np.float64)
         newalpha = np.zeros((self.S,), dtype=np.float64)
         state = np.zeros((self.M,), dtype=np.uint8)
+        self.best_codon_log = ''
+        self.inferred_states = dict()
+
 
         # for f from 0 <= f < 3:
         for f in range(3):
@@ -570,18 +573,28 @@ class State(object):
                 state[m] = pointer[m+1,state[m+1]]
             state[0] = pointer[0,0]
             self.max_posterior[f] = exp(np.max(alpha) - np.sum(self.likelihood[:,f]))
+            self.inferred_states[f] = list(state)
 
             # identifying start codon position
+            from collections import Counter
+
+            # self.best_codon_log += 'frame {} distribution: {}\n'.format(f, Counter(state))
             try:
                 self.best_start.append(np.where(state==2)[0][0]*3+f)
+                self.best_codon_log += 'np.where: {}\n'.format(np.where(state==2)[0][0])
+                self.best_codon_log += 'best start final: {}\n'.format(np.where(state==2)[0][0]*3+f)
             except IndexError:
                 self.best_start.append(None)
+                self.best_codon_log += 'best start final: {}\n'.format(None)
 
             # identifying stop codon position
             try:
                 self.best_stop.append(np.where(state==7)[0][0]*3+f)
+                self.best_codon_log += 'np.where: {}\n'.format(np.where(state == 2)[0][0])
+                self.best_codon_log += 'best stop final: {}\n'.format(np.where(state == 2)[0][0] * 3 + f)
             except IndexError:
                 self.best_stop.append(None)
+            self.best_codon_log += 'best stop final: {}\n'.format(None)
 
         self.alpha = np.empty((1,1,1), dtype=np.float64)
         self.pos_cross_moment_start = np.empty((1,1,1), dtype=np.float64)

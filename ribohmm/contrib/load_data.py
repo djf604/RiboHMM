@@ -246,6 +246,7 @@ class Transcript():
         self.exons = list()
         self.has_CDS = False
         self.proteinid = ''
+        self.raw_attrs = attrs
 
         # add attribute fields that are available
         self.type = attrs.get('transcript_type')
@@ -297,6 +298,15 @@ class Transcript():
 
             # no exons for transcript; remove
             raise ValueError
+
+    def __str__(self):
+        return (
+            f'Transcript {self.id}\n'
+            f'Coordinates: {self.chromosome}:{self.start}:{self.stop}\n'
+            f'Strand: {self.strand}\n'
+            f'Attributes: {self.raw_attrs}\n'
+            f'Exons: {self.exons}'
+        )
 
 
 def load_gtf(filename, use_cache=True):

@@ -7,6 +7,7 @@ import time
 # READ_LENGTHS = [28, 29, 30, 31]
 STARTCODONS = ['AUG','CUG','GUG','UUG','AAG','ACG','AGG','AUA','AUC','AUU']
 STOPCODONS = ['UAA','UAG','UGA']
+STATES = ['5\'UTS', '5\'UTS+', 'TIS', 'TIS+', 'TES', 'TTS-', 'TTS', '3\'UTS-', '3\'UTS']
 
 binarize = dict([(0,np.array([False,False,False])),
                  (1,np.array([False,False,True])),

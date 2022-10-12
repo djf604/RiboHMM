@@ -3,6 +3,7 @@ import argparse
 import warnings
 import json
 import datetime
+from collections import Counter
 
 import numpy as np
 
@@ -85,6 +86,71 @@ def parse_args():
 
 def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
 
+
+    INCORRECT = {
+      'chr11.102165790.102166537.+',
+'chr6.100023587.100024332.+',
+'chr6.121974940.121975836.+',
+'chr6.132593120.132594471.+',
+'chr6.150201097.150202708.+',
+'chr6.166477778.166478788.+',
+'chr6.88008489.88010165.+',
+'chr7.10490937.10492153.+',
+'chr7.128696072.128696824.+',
+'chr7.131350265.131350617.+',
+'chr7.27501384.27502588.+',
+'chr7.30411123.30412357.+',
+'chr7.54724050.54724427.+',
+'chr7.63894207.63894970.+',
+'chr7.64043110.64043585.+',
+'chr7.72300068.72304585.+',
+'chr7.72300085.72304586.+',
+'chr7.88268327.88269730.+',
+    }
+
+    CORRECT = {
+      'chr11.102188214.102192973.+',
+'chr11.102188232.102192859.+',
+'chr11.102477646.102478853.+',
+'chr11.109817270.109843725.+',
+'chr11.88071006.88161319.+',
+'chr11.93454678.93455031.+',
+'chr6.111804713.111814206.+',
+'chr6.111804867.111824814.+',
+'chr6.114291117.114314627.+',
+'chr6.116575369.116577906.+',
+'chr6.130581529.130584768.+',
+'chr6.135376170.135381688.+',
+'chr6.139592498.139608444.+',
+'chr6.146136433.146204729.+',
+'chr6.153304884.153310358.+',
+'chr6.155654725.155687130.+',
+'chr6.157963620.158049635.+',
+'chr6.158653187.158692082.+',
+'chr6.160494447.160495093.+',
+'chr6.166756114.166766190.+',
+'chr6.170772694.170775269.+',
+'chr6.88084405.88088320.+',
+'chr6.89372210.89374498.+',
+'chr6.99282579.99286660.+',
+'chr6.99872797.99879249.+',
+'chr7.100202610.100203388.+',
+'chr7.100209724.100212949.+',
+'chr7.100210437.100211412.+',
+'chr7.100951626.100954266.+',
+'chr7.1040584.1045942.+',
+'chr7.104581652.104602781.+',
+'chr7.104654907.104703824.+',
+'chr7.1094914.1096188.+',
+'chr7.1126442.1131585.+',
+'chr7.1126511.1133451.+',
+'chr7.1138952.1140655.+',
+'chr7.123389121.123391220.+',
+'chr7.129098082.129100389.+',
+'chr7.135665684.135684386.+',
+'chr7.142995608.142995905.+',
+    }
+
     posteriors = state.max_posterior*frame.posterior
     index = np.argmax(posteriors)
     tis = state.best_start[index]
@@ -94,18 +160,34 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
     """
     is_transcript_of_interest = True
     if is_transcript_of_interest:
-      print('Writing out transcript: {}'.format(transcript.id))
+      coord_id = '.'.join([
+        transcript.chromosome, str(transcript.start), str(transcript.stop), transcript.strand])
+      print('Writing out transcript: {} | {} | {} | index {}'.format(coord_id, transcript.id,
+          'CORRECT' if coord_id in CORRECT else 'INCORRECT' if coord_id in INCORRECT else 'UNKNOWN', index
+                                                          )
+      )
       print('Best start: {}'.format(tis))
       print('Best stop: {}'.format(tts))
+      print(f'Posteriors: {posteriors}')
+      print(f'Transcript info:\n{transcript}')
+
 
     # output is not a valid CDS
     if tis is None or tts is None:
-        if transcript.id in check_out:
-            print('{} write aborted, not valid'.format(transcript.id))
         return None
 
     posterior = int(posteriors[index]*10000)
+    print(f'Selected posterior: {posterior}')
+    print(f'Raw RNA sequence ({len(rna_sequence)}): {rna_sequence}')
+    selected_rna = rna_sequence[tis:tts]
+    print(f'Selected RNA sequence for translation ({len(selected_rna)}): {selected_rna}')
+    print('Modified selection: {} | {} | {}'.format(
+      rna_sequence[tis - 9:tis],
+      '.'.join([selected_rna[i:i+3] for i in range(0, len(selected_rna), 3)]),
+      rna_sequence[tts:tts + 9]
+    ))
     protein = utils.translate(rna_sequence[tis:tts])
+    print(f'Translated protein ({len(protein)}): {protein}')
     # identify TIS and TTS in genomic coordinates
     if transcript.strand=='+':
         cdstart = transcript.start + np.where(transcript.mask)[0][tis]
@@ -118,6 +200,13 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
         if is_transcript_of_interest:
           print('CDS Stop: {} + {} - {}'.format(transcript.start,
                                               transcript.mask.size, np.where(transcript.mask)[0][tis]))
+
+    # print('!!!!! {}'.format(state.inferred_states))
+    for f in range(3):
+      c = Counter([utils.STATES[s] for s in state.inferred_states[f]])
+      print('Frame {}:'.format(f))
+      print(' | '.join(['{}: {}'.format(s, c[s]) for s in utils.STATES]))
+    print(state.best_codon_log + '\n')
 
 
 
