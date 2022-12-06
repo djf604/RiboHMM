@@ -150,6 +150,9 @@ class RiboSeq():
     def get_exon_total_counts(self, transcripts):
         return self.get_counts(transcripts, exon_counts=True)
 
+    def get_read_lengths(self):
+        return self._read_lengths
+
     def close(self):
         self._counts_tbx.close()
 

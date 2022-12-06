@@ -17,6 +17,72 @@ warnings.filterwarnings('ignore', '.*divide by zero.*',)
 warnings.filterwarnings('ignore', '.*invalid value.*',)
 
 
+INCORRECT = {
+      'chr11.102165790.102166537.+',
+'chr6.100023587.100024332.+',
+'chr6.121974940.121975836.+',
+'chr6.132593120.132594471.+',
+'chr6.150201097.150202708.+',
+'chr6.166477778.166478788.+',
+'chr6.88008489.88010165.+',
+'chr7.10490937.10492153.+',
+'chr7.128696072.128696824.+',
+'chr7.131350265.131350617.+',
+'chr7.27501384.27502588.+',
+'chr7.30411123.30412357.+',
+'chr7.54724050.54724427.+',
+'chr7.63894207.63894970.+',
+'chr7.64043110.64043585.+',
+'chr7.72300068.72304585.+',
+'chr7.72300085.72304586.+',
+'chr7.88268327.88269730.+',
+    }
+
+CORRECT = {
+      'chr11.102188214.102192973.+',
+'chr11.102188232.102192859.+',
+'chr11.102477646.102478853.+',
+'chr11.109817270.109843725.+',
+'chr11.88071006.88161319.+',
+'chr11.93454678.93455031.+',
+'chr6.111804713.111814206.+',
+'chr6.111804867.111824814.+',
+'chr6.114291117.114314627.+',
+'chr6.116575369.116577906.+',
+'chr6.130581529.130584768.+',
+'chr6.135376170.135381688.+',
+'chr6.139592498.139608444.+',
+'chr6.146136433.146204729.+',
+'chr6.153304884.153310358.+',
+'chr6.155654725.155687130.+',
+'chr6.157963620.158049635.+',
+'chr6.158653187.158692082.+',
+'chr6.160494447.160495093.+',
+'chr6.166756114.166766190.+',
+'chr6.170772694.170775269.+',
+'chr6.88084405.88088320.+',
+'chr6.89372210.89374498.+',
+'chr6.99282579.99286660.+',
+'chr6.99872797.99879249.+',
+'chr7.100202610.100203388.+',
+'chr7.100209724.100212949.+',
+'chr7.100210437.100211412.+',
+'chr7.100951626.100954266.+',
+'chr7.1040584.1045942.+',
+'chr7.104581652.104602781.+',
+'chr7.104654907.104703824.+',
+'chr7.1094914.1096188.+',
+'chr7.1126442.1131585.+',
+'chr7.1126511.1133451.+',
+'chr7.1138952.1140655.+',
+'chr7.123389121.123391220.+',
+'chr7.129098082.129100389.+',
+'chr7.135665684.135684386.+',
+'chr7.142995608.142995905.+',
+    }
+
+
+
 
 check_out = ['ENST00000607058.1',
  'ENST00000488123.2',
@@ -431,6 +497,46 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
             #                        rna_counts, rna_mappability, transition, emission)
 
+            # This is where we're getting the data to plot
+            from ribohmm.core.ribohmm import discovery_mode_data_logprob
+            pos_data_log_probs = discovery_mode_data_logprob(
+              riboseq_footprint_pileups=footprint_counts,
+              codon_maps=codon_flags,
+              transcript_normalization_factors=rna_counts,
+              mappability=rna_mappability,
+              transition=model_params['transition'],
+              emission=model_params['emission'],
+              transcripts=transcripts
+            )
+            discovery_mod_results_pos = [
+              {
+                'transcript_info': {
+                  'chr': t.chromosome,
+                  'start': t.start,
+                  'stop': t.stop,
+                  'strand': t.strand,
+                  'length': t.stop - t.start + 1,
+                  'type': 'INCORRECT' if '.'.join([t.chromosome, str(t.start), str(t.stop), t.strand]) in INCORRECT else
+                          'CORRECT' if '.'.join([t.chromosome, str(t.start), str(t.stop), t.strand]) in CORRECT else
+                          'UNKNOWN'
+                },
+                'transcript_string': str(t.raw_attrs),
+                'exons': {
+                  'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
+                  'relative': t.exons
+                },
+                'riboseq_pileup_counts': {
+                  read_length: list(f[:, read_length_i])
+                  for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
+                },
+                'results': candidate_cds_likelihoods
+              }
+              for t, candidate_cds_likelihoods, f in zip(transcripts, pos_data_log_probs, footprint_counts)
+            ]
+
+            # Going back to the regularly scheduled programming
+
+
 
             data, states, frames = infer_coding_sequence(footprint_counts, codon_flags, \
                                                         rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
@@ -524,6 +630,42 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             else:
                 rna_mappability = [np.ones(c.shape,dtype='bool') for c in footprint_counts]
 
+            from ribohmm.core.ribohmm import discovery_mode_data_logprob
+            neg_data_log_probs = discovery_mode_data_logprob(
+              riboseq_footprint_pileups=footprint_counts,
+              codon_maps=codon_flags,
+              transcript_normalization_factors=rna_counts,
+              mappability=rna_mappability,
+              transition=model_params['transition'],
+              emission=model_params['emission'],
+              transcripts=transcripts
+            )
+            discovery_mod_results_neg = [
+              {
+                'transcript_info': {
+                  'chr': t.chromosome,
+                  'start': t.start,
+                  'stop': t.stop,
+                  'strand': t.strand,
+                  'length': t.stop - t.start + 1,
+                  'type': 'INCORRECT' if '.'.join([t.chromosome, str(t.start), str(t.stop), t.strand]) in INCORRECT else
+                  'CORRECT' if '.'.join([t.chromosome, str(t.start), str(t.stop), t.strand]) in CORRECT else
+                  'UNKNOWN'
+                },
+                'transcript_string': str(t.raw_attrs),
+                'exons': {
+                  'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
+                  'relative': t.exons
+                },
+                'riboseq_pileup_counts': {
+                  read_length: list(f[:, read_length_i])
+                  for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
+                },
+                'results': candidate_cds_likelihoods
+              }
+              for t, candidate_cds_likelihoods, f in zip(transcripts, neg_data_log_probs, footprint_counts)
+            ]
+
             # run the learning algorithm
             # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
             #                        rna_counts, rna_mappability, transition, emission)
@@ -555,6 +697,20 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
                 written_out[transcript.id] += 1
             # print('Neg strand writes: {}'.format(neg_writes))
 
+    # Output debug output bundle
+    DEBUG_OUTPUT_FILENAME = 'incorrect_and_correct_nov29_minus_one.json'
+    with open(DEBUG_OUTPUT_FILENAME, 'w') as out:
+      def serialize_output(results):
+        if isinstance(results, list):
+          return [serialize_output(r) for r in results]
+        if isinstance(results, dict):
+          return {k: serialize_output(v) for k, v in results.items()}
+        if isinstance(results, np.int64):
+          return int(results)
+        if isinstance(results, np.ndarray):
+          return list(results)
+        return results
+      json.dump(serialize_output({'pos': discovery_mod_results_pos, 'neg': discovery_mod_results_neg}), out)
 
     handle.close()
     ribo_track.close()

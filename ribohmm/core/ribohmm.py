@@ -86,6 +86,7 @@ class Data:
         self.L = obs.shape[0]
         # length of HMM
         self.M = int(self.L/3) - 1
+        self.n_triplets = self.M
         # number of distinct footprint lengths
         self.R = obs.shape[1]
         # observed ribosome-profiling data
@@ -479,7 +480,7 @@ class State(object):
     # @cython.nonecheck(False)
     # cdef decode(self, Data data, Transition transition, Emission emission, Frame frame):
     # @njit
-    def decode(self, data, transition, emission, frame):
+    def decode(self, data, transition, emission, frame, wipe_attributes=True):
 
         # cdef long f, s, m
         # cdef double p, q, like
@@ -596,11 +597,12 @@ class State(object):
                 self.best_stop.append(None)
             self.best_codon_log += 'best stop final: {}\n'.format(None)
 
-        self.alpha = np.empty((1,1,1), dtype=np.float64)
-        self.pos_cross_moment_start = np.empty((1,1,1), dtype=np.float64)
-        self.pos_cross_moment_stop = np.empty((1,1,1), dtype=np.float64)
-        self.pos_first_moment = np.empty((1,1,1), dtype=np.float64)
-        self.likelihood = np.empty((1,1), dtype=np.float64)
+        if wipe_attributes:
+            self.alpha = np.empty((1,1,1), dtype=np.float64)
+            self.pos_cross_moment_start = np.empty((1,1,1), dtype=np.float64)
+            self.pos_cross_moment_stop = np.empty((1,1,1), dtype=np.float64)
+            self.pos_first_moment = np.empty((1,1,1), dtype=np.float64)
+            self.likelihood = np.empty((1,1), dtype=np.float64)
 
     # @cython.boundscheck(False)
     # @cython.wraparound(False)
@@ -1790,3 +1792,200 @@ def infer_coding_sequence(observations, codon_id, scales, mappability, transitio
 
     return data, states, frames
 
+
+def get_triplet_state(triplet_i, start_pos, stop_pos):
+    class States:
+        ST_5PRIME_UTS = 0
+        ST_5PRIME_UTS_PLUS = 1
+        ST_TIS = 2
+        ST_TIS_PLUS = 3
+        ST_TES = 4
+        ST_TTS_MINUS = 5
+        ST_TTS = 6
+        ST_3PRIME_UTS_MINUS = 7
+        ST_3PRIME_UTS = 8
+
+    if triplet_i < start_pos - 1:
+        return States.ST_5PRIME_UTS
+    if triplet_i == start_pos - 1:
+        return States.ST_5PRIME_UTS_PLUS
+    if triplet_i == start_pos:
+        return States.ST_TIS
+    if triplet_i == start_pos + 1:
+        return States.ST_TIS_PLUS
+    if triplet_i == stop_pos - 1:
+        return States.ST_TTS_MINUS
+    if triplet_i == stop_pos:
+        return States.ST_TTS
+    if triplet_i == stop_pos + 1:
+        return States.ST_3PRIME_UTS_MINUS
+    if triplet_i > stop_pos + 1:
+        return States.ST_3PRIME_UTS
+    return States.ST_TES
+
+
+def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability,
+                                transition, emission, transcripts):
+    emission = {
+        'start': 'noncanonical',
+        'S': emission['S'],
+        'logperiodicity': np.array(emission['logperiodicity']['data']).reshape(emission['logperiodicity']['shape']),
+        'rescale': np.array(emission['rescale']['data']).reshape(emission['rescale']['shape']),
+        'rate_alpha': np.array(emission['rate_alpha']['data']).reshape(emission['rate_alpha']['shape']),
+        'rate_beta': np.array(emission['rate_beta']['data']).reshape(emission['rate_beta']['shape'])
+    }
+    transition = {
+        'start': 'noncanonical',
+        'seqparam': {
+            'kozak': np.array(transition['seqparam']['kozak']),
+            'start': np.array(transition['seqparam']['start']),
+            'stop': np.array(transition['seqparam']['stop'])
+        }
+    }
+
+    data = [
+        Data(
+            riboseq_footprint_pileup,
+            codon_map,
+            transcript_normalization_factor,
+            is_pos_mappable
+        )
+        for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable
+        in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability)
+    ]
+
+    discovery_mode_results = list()
+    # For each transcript
+    i = 0
+    for transcript, riboseq_data in zip(transcripts, data):
+        print('##### Looking at transcript {}'.format(i))
+        i += 1
+        riboseq_data.compute_log_probability(emission)
+        state = State(riboseq_data.n_triplets)
+        state._forward_update(data=riboseq_data, transition=transition)
+        frame = Frame()
+        frame.update(riboseq_data, state)
+        state.decode(riboseq_data, transition, emission, frame, wipe_attributes=False)
+
+        # Get the inferred CDS
+        posteriors = state.max_posterior * frame.posterior
+        best_frame_i = np.argmax(posteriors)
+        from collections import namedtuple
+        CandidateCDS = namedtuple('CandidateCDS', 'frame start stop')
+        inferred_CDS = CandidateCDS(
+            frame=int(best_frame_i),
+            start=int((state.best_start[best_frame_i] - best_frame_i) / 3),
+            stop=int((state.best_stop[best_frame_i] - best_frame_i) / 3)
+        )
+        inferred_CDS_minus_one = CandidateCDS(
+            frame=int(best_frame_i),
+            start=int((state.best_start[best_frame_i] - best_frame_i) / 3),
+            stop=int((state.best_stop[best_frame_i] - best_frame_i) / 3) - 1
+        )
+        all_candidate_cds = [inferred_CDS, inferred_CDS_minus_one]
+
+
+
+
+        # emission_errors = riboseq_data.compute_observed_pileup_deviation(emission, return_sorted=False)
+        # ORF_EMISSION_ERROR_MEAN = 1
+        # ORF_EMISSION_ERROR_BY_TRIPLET_SSE = 2
+
+        # Get absolute positions of triplets within the chromosome
+        triplet_genomic_positions = list()
+        exonic_positions = list()
+        for exon in transcript.exons:
+            exonic_positions.extend(list(range(exon[0], exon[1] + 1)))
+        exonic_positions = np.array(exonic_positions) + transcript.start
+
+        for triplet_i in range(riboseq_data.n_triplets):
+            e = exonic_positions[triplet_i * 3:(triplet_i + 1) * 3]
+            if e[2] - e[0] == 2:
+                e = [e[0], -1, -1]
+            triplet_genomic_positions.append(list(e))
+
+        candidate_cds_likelihoods = list()
+        # all_candidate_cds = riboseq_data.get_candidate_cds_simple()
+        # For each candidate CDS in this transcript
+        # for candidate_cds, orf_emission_error in zip(all_candidate_cds, emission_errors):
+        for candidate_cds in all_candidate_cds:
+            triplet_likelihoods = list()
+            triplet_alpha_values = list()
+            triplet_state_likelihood_values = list()
+            triplet_states = list()
+
+            # Get genomic position of start and stop codons
+            start_genomic_pos = triplet_genomic_positions[candidate_cds.start]
+            stop_genomic_pos = triplet_genomic_positions[candidate_cds.stop]
+            frame_i = candidate_cds.frame
+            if sum(start_genomic_pos[-2:]) == -2:
+                start_genomic_pos = [
+                    start_genomic_pos[0] + frame_i,
+                    start_genomic_pos[0] + frame_i + 1,
+                    start_genomic_pos[0] + frame_i + 2
+                ]
+            if sum(stop_genomic_pos[-2:]) == -2:
+                stop_genomic_pos = [
+                    stop_genomic_pos[0] + frame_i,
+                    stop_genomic_pos[0] + frame_i + 1,
+                    stop_genomic_pos[0] + frame_i + 2
+                ]
+
+            # Get the data log probability for each position in this transcript, with the states defined by
+            # the candidate CDS
+            for triplet_i in range(riboseq_data.log_probability.shape[1]):
+                triplet_state = get_triplet_state(triplet_i, start_pos=candidate_cds.start, stop_pos=candidate_cds.stop)
+                triplet_likelihoods.append(riboseq_data.log_probability[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_alpha_values.append(state.alpha[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_state_likelihood_values.append(state.likelihood[triplet_i, candidate_cds.frame])
+                # triplet_states.append(get_triplet_string(triplet_state))
+            # Once each position probability is gathered, add them to a list for this transcript
+
+            candidate_cds_results = {
+                'definition': candidate_cds,
+                'triplet_states': triplet_states,
+                'start_codon_genomic_position': start_genomic_pos,
+                'stop_codon_genomic_position': stop_genomic_pos,
+                'data_loglikelihood': {
+                    'by_pos': triplet_likelihoods,
+                    'sum': np.sum(triplet_likelihoods)
+                },
+                'state_alpha': {
+                    'by_pos': triplet_alpha_values,
+                    'sum': np.sum(triplet_alpha_values)
+                },
+                'state_likelihood': {
+                    'by_pos': triplet_state_likelihood_values,
+                    'sum': np.sum(triplet_state_likelihood_values)
+                },
+                # 'orf_emission_error': {
+                #     'mean_rmse': orf_emission_error[ORF_EMISSION_ERROR_MEAN],
+                #     'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE],
+                #     # 'by_triplet_sse': by_triplet_sse
+                # }
+            }
+            candidate_cds_likelihoods.append(candidate_cds_results)
+
+        # frame = Frame()
+        # frame.update(riboseq_data, state)
+        # orf_posteriors = state.new_decode(data=riboseq_data, transition=transition)
+        # # print(orf_posteriors)
+        # state.decode(data=riboseq_data, transition=transition)
+        discovery_mode_results.append({
+            'candidate_orf': candidate_cds_likelihoods,
+            'data_logprob_full': riboseq_data.log_probability.tolist(),
+            # 'data_logprob_full': riboseq_data.log_likelihood.tolist(),
+            'state_alpha_full': state.alpha.tolist(),
+            # 'state_decode_alphas': state.decode_alphas.tolist(),
+            # 'triplet_genomic_positions': triplet_genomic_positions,
+            'decode': {
+                'max_posterior': [utils.MAX if np.isinf(p) else p for p in state.max_posterior],
+                'best_start': [int(b) if b is not None else b for b in state.best_start],
+                'best_stop': [int(b) if b is not None else b for b in state.best_stop]
+            },
+            'final_posterior': {
+                'by_frame': state.max_posterior * frame.posterior,
+                'max_index': np.argmax(state.max_posterior * frame.posterior)
+            }
+        })
+    return discovery_mode_results
