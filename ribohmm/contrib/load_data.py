@@ -19,11 +19,9 @@ class Genome():
 
     def get_sequence(self, transcripts):
         """
-
         :param transcripts:
         :return:
         """
-
         sequences = []
         for transcript in transcripts:
 
@@ -150,32 +148,11 @@ class RiboSeq():
     def get_exon_total_counts(self, transcripts):
         return self.get_counts(transcripts, exon_counts=True)
 
+    def get_read_lengths(self):
+        return self._read_lengths
+
     def close(self):
         self._counts_tbx.close()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 class RnaSeq():
@@ -200,7 +177,7 @@ class RnaSeq():
                 chrom, start, stop, asite_count, strandedness, _ = count_record.split('\t')
                 count_pos = int(start) - transcript.start
                 if mask[count_pos]:
-                    counts += 1  # TODO This is pending input from Sidney, about whether we should add 1 or count
+                    counts += int(asite_count)
 
             total_counts.append(max(1, counts) * 1e6 / (transcript.L * self.total))
 
@@ -215,6 +192,7 @@ class Transcript():
         self.chromosome = chrom if chrom.startswith('c') else 'chr{}'.format(chrom)
         self.start = int(start)
         self.stop = int(stop)
+        self.raw_attrs = attrs
 
         self.strand = strand if strand in {'+', '-'} else '.'
 
