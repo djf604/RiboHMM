@@ -70,7 +70,10 @@ def parse_args():
 
 def write_inferred_cds_discovery_mode(handle, transcript, frame, rna_sequence, candidate_cds, orf_posterior,
                                       orf_start, orf_stop):
-    posterior = int(orf_posterior * frame.posterior[candidate_cds.frame] * 10000)
+    try:
+        posterior = int(orf_posterior * frame.posterior[candidate_cds.frame] * 10000)
+    except:
+        posterior = 'NaN'
     tis = orf_start  # This is base position, not a state position
     tts = orf_stop
 
@@ -97,10 +100,10 @@ def write_inferred_cds_discovery_mode(handle, transcript, frame, rna_sequence, c
                transcript.start,
                transcript.stop,
                transcript.id,
+               posterior,
                transcript.strand,
                cdstart,
                cdstop,
-               posterior,
                protein,
                len(transcript.exons),
                ','.join(map(str, [e[1] - e[0] for e in transcript.exons])) + ',',
@@ -132,10 +135,10 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
                transcript.start, 
                transcript.stop, 
                transcript.id,
+               posterior,
                transcript.strand,
                cdstart,
                cdstop,
-               posterior,
                protein, 
                len(transcript.exons), 
                ','.join(map(str,[e[1]-e[0] for e in transcript.exons]))+',', 
@@ -146,7 +149,7 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
 def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_prefix, ribo_track,
           rnaseq_track, output_directory):
     logger.info('Starting infer_CDS()')
-    N_TRANSCRIPTS = None  # Set to None to allow all transcripts
+    N_TRANSCRIPTS = 20  # Set to None to allow all transcripts
     N_FRAMES = 3
     DEBUG_OUTPUT_FILENAME = 'feb07.json'
 
