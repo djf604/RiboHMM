@@ -146,8 +146,39 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
     handle.write(" ".join(map(str,towrite))+'\n')
 
 
-def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_prefix, ribo_track,
-          rnaseq_track, output_directory):
+def infer_on_transcripts(primary_strand, transcripts, ribo_track):
+    if primary_strand not in {'+', '-'}:
+        raise ValueError('primary_strand must be either + or -')
+    opposite_strand = '-' if primary_strand == '+' else '+'
+
+    logger.info('Looking at transcript positive strands')
+    for t in transcripts:
+        if t.strand == opposite_strand:
+            t.mask = t.mask[::-1]
+            t.strand = primary_strand
+
+            # check if all exons have at least 5 footprints
+            exon_counts = ribo_track.get_exon_total_counts(transcripts)
+            transcripts_ = [t for t, e in zip(transcripts, exon_counts) if np.all(e >= 5)]
+            logger.info('In {} transcripts, all exons have at least 5 footprints'.format(len(transcripts_)))
+            # TODO Pick this up later
+
+
+
+
+
+
+
+def infer_CDS(
+    model_file,
+    transcript_models,
+    genome_track,
+    mappability_tabix_prefix,
+    ribo_track,
+    rnaseq_track,
+    output_directory,
+    infer_algorithm='viterbi'
+):
     logger.info('Starting infer_CDS()')
     N_TRANSCRIPTS = 20  # Set to None to allow all transcripts
     N_FRAMES = 3
@@ -246,69 +277,68 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             #     genome_track=genome_track,
             #     transcripts=transcripts
             # )
-            # states, frames = infer_coding_sequence(footprint_counts, codon_maps, \
-            #                                             rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
-            pos_orf_posteriors, pos_candidate_cds_matrices, pos_frames, pos_data_log_probs = discovery_mode_data_logprob(
-                riboseq_footprint_pileups=footprint_counts,
-                codon_maps=codon_maps,
-                transcript_normalization_factors=rna_counts,
-                mappability=rna_mappability,
-                transition=model_params['transition'],
-                emission=model_params['emission'],
-                transcripts=transcripts
-            )
-            discovery_mod_results_pos = [
-                {
-                    'transcript_info': {
-                        'chr': t.chromosome,
-                        'start': t.start,
-                        'stop': t.stop,
-                        'strand': t.strand,
-                        'length': t.stop - t.start + 1
-                    },
-                    'transcript_string': str(t.raw_attrs),
-                    'exons': {
-                        'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
-                        'relative': t.exons
-                    },
-                    'riboseq_pileup_counts': {
-                        read_length: list(f[:, read_length_i])
-                        for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
-                    },
-                    'results': candidate_cds_likelihoods
-                }
-                for t, candidate_cds_likelihoods, f in zip(transcripts, pos_data_log_probs, footprint_counts)
-            ]
+            if infer_algorithm == 'viterbi':
+                logger.info('Running the Viterbi algorithm over the positive strand')
+                states, frames = infer_coding_sequence(
+                    footprint_counts,
+                    codon_maps,
+                    rna_counts,
+                    rna_mappability,
+                    model_params['transition'],
+                    model_params['emission']
+                )
+                for transcript, state, frame, rna_sequence in zip(transcripts, states, frames, rna_sequences):
+                    write_inferred_cds(handle, transcript, state, frame, rna_sequence)
+            elif infer_algorithm == 'discovery':
+                logger.info('Running the Discovery algorithm over the positive strand')
+                pos_orf_posteriors, pos_candidate_cds_matrices, pos_frames, pos_data_log_probs = discovery_mode_data_logprob(
+                    riboseq_footprint_pileups=footprint_counts,
+                    codon_maps=codon_maps,
+                    transcript_normalization_factors=rna_counts,
+                    mappability=rna_mappability,
+                    transition=model_params['transition'],
+                    emission=model_params['emission'],
+                    transcripts=transcripts
+                )
+                discovery_mod_results_pos = [
+                    {
+                        'transcript_info': {
+                            'chr': t.chromosome,
+                            'start': t.start,
+                            'stop': t.stop,
+                            'strand': t.strand,
+                            'length': t.stop - t.start + 1
+                        },
+                        'transcript_string': str(t.raw_attrs),
+                        'exons': {
+                            'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
+                            'relative': t.exons
+                        },
+                        'riboseq_pileup_counts': {
+                            read_length: list(f[:, read_length_i])
+                            for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
+                        },
+                        'results': candidate_cds_likelihoods
+                    }
+                    for t, candidate_cds_likelihoods, f in zip(transcripts, pos_data_log_probs, footprint_counts)
+                ]
 
-            for transcript, frame, rna_sequence, orf_posterior_matrix, candidate_cds_matrix in zip(
-                            transcripts, pos_frames, rna_sequences, pos_orf_posteriors, pos_candidate_cds_matrices):
-                for frame_i in range(N_FRAMES):
-                    for orf_i, orf_posterior in enumerate(orf_posterior_matrix[frame_i]):
-                        candidate_cds = candidate_cds_matrix[frame_i][orf_i]
-                        write_inferred_cds_discovery_mode(
-                            handle=handle,
-                            transcript=transcript,
-                            frame=frame,
-                            rna_sequence=rna_sequence,
-                            candidate_cds=candidate_cds,
-                            orf_posterior=orf_posterior,
-                            # This is the same formula used in State.decode()
-                            orf_start=candidate_cds.start * 3 + candidate_cds.frame,
-                            orf_stop=candidate_cds.stop * 3 + candidate_cds.frame
-                        )
-
-
-
-            def serialize_output(results):
-                if isinstance(results, list):
-                    return [serialize_output(r) for r in results]
-                if isinstance(results, dict):
-                    return {k: serialize_output(v) for k, v in results.items()}
-                if isinstance(results, np.int64):
-                    return int(results)
-                if isinstance(results, np.ndarray):
-                    return list(results)
-                return results
+                for transcript, frame, rna_sequence, orf_posterior_matrix, candidate_cds_matrix in zip(
+                                transcripts, pos_frames, rna_sequences, pos_orf_posteriors, pos_candidate_cds_matrices):
+                    for frame_i in range(N_FRAMES):
+                        for orf_i, orf_posterior in enumerate(orf_posterior_matrix[frame_i]):
+                            candidate_cds = candidate_cds_matrix[frame_i][orf_i]
+                            write_inferred_cds_discovery_mode(
+                                handle=handle,
+                                transcript=transcript,
+                                frame=frame,
+                                rna_sequence=rna_sequence,
+                                candidate_cds=candidate_cds,
+                                orf_posterior=orf_posterior,
+                                # This is the same formula used in State.decode()
+                                orf_start=candidate_cds.start * 3 + candidate_cds.frame,
+                                orf_stop=candidate_cds.stop * 3 + candidate_cds.frame
+                            )
 
         # focus on negative strand
         logger.info('Looking at transcript negative strands')
@@ -355,56 +385,68 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
             # states, frames = ribohmm_pure.infer_coding_sequence(footprint_counts, codon_flags, \
             #                        rna_counts, rna_mappability, transition, emission)
             logger.info('Running inference')
-            # states, frames = infer_coding_sequence(footprint_counts, codon_maps, \
-            #                                             rna_counts, rna_mappability, model_params['transition'], model_params['emission'])
-            neg_orf_posteriors, neg_candidate_cds_matrices, neg_frames, neg_data_log_probs = discovery_mode_data_logprob(
-                riboseq_footprint_pileups=footprint_counts,
-                codon_maps=codon_maps,
-                transcript_normalization_factors=rna_counts,
-                mappability=rna_mappability,
-                transition=model_params['transition'],
-                emission=model_params['emission'],
-                transcripts=transcripts
-            )
-            discovery_mod_results_neg = [
-                {
-                    'transcript_info': {
-                        'chr': t.chromosome,
-                        'start': t.start,
-                        'stop': t.stop,
-                        'strand': t.strand,
-                        'length': t.stop - t.start + 1
-                    },
-                    'transcript_string': str(t.raw_attrs),
-                    'exons': {
-                        'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
-                        'relative': t.exons
-                    },
-                    'riboseq_pileup_counts': {
-                        read_length: list(f[:, read_length_i])
-                        for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
-                    },
-                    'results': candidate_cds_likelihoods
-                }
-                for t, candidate_cds_likelihoods, f in zip(transcripts, neg_data_log_probs, footprint_counts)
-            ]
+            if infer_algorithm == 'viterbi':
+                logger.info('Running the Viterbi algorithm over the negative strand')
+                states, frames = infer_coding_sequence(
+                    footprint_counts,
+                    codon_maps,
+                    rna_counts,
+                    rna_mappability,
+                    model_params['transition'],
+                    model_params['emission']
+                )
+                for transcript, state, frame, rna_sequence in zip(transcripts, states, frames, rna_sequences):
+                    write_inferred_cds(handle, transcript, state, frame, rna_sequence)
+            elif infer_algorithm == 'discovery':
+                logger.info('Running the Discovery algorithm over the negative strand')
+                neg_orf_posteriors, neg_candidate_cds_matrices, neg_frames, neg_data_log_probs = discovery_mode_data_logprob(
+                    riboseq_footprint_pileups=footprint_counts,
+                    codon_maps=codon_maps,
+                    transcript_normalization_factors=rna_counts,
+                    mappability=rna_mappability,
+                    transition=model_params['transition'],
+                    emission=model_params['emission'],
+                    transcripts=transcripts
+                )
+                discovery_mod_results_neg = [
+                    {
+                        'transcript_info': {
+                            'chr': t.chromosome,
+                            'start': t.start,
+                            'stop': t.stop,
+                            'strand': t.strand,
+                            'length': t.stop - t.start + 1
+                        },
+                        'transcript_string': str(t.raw_attrs),
+                        'exons': {
+                            'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
+                            'relative': t.exons
+                        },
+                        'riboseq_pileup_counts': {
+                            read_length: list(f[:, read_length_i])
+                            for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
+                        },
+                        'results': candidate_cds_likelihoods
+                    }
+                    for t, candidate_cds_likelihoods, f in zip(transcripts, neg_data_log_probs, footprint_counts)
+                ]
 
-            for transcript, frame, rna_sequence, orf_posterior_matrix, candidate_cds_matrix in zip(
-                            transcripts, neg_frames, rna_sequences, neg_orf_posteriors, neg_candidate_cds_matrices):
-                for frame_i in range(N_FRAMES):
-                    for orf_i, orf_posterior in enumerate(orf_posterior_matrix[frame_i]):
-                        candidate_cds = candidate_cds_matrix[frame_i][orf_i]
-                        write_inferred_cds_discovery_mode(
-                            handle=handle,
-                            transcript=transcript,
-                            frame=frame,
-                            rna_sequence=rna_sequence,
-                            candidate_cds=candidate_cds,
-                            orf_posterior=orf_posterior,
-                            # This is the same formula used in State.decode()
-                            orf_start=candidate_cds.start * 3 + candidate_cds.frame,
-                            orf_stop=candidate_cds.stop * 3 + candidate_cds.frame
-                        )
+                for transcript, frame, rna_sequence, orf_posterior_matrix, candidate_cds_matrix in zip(
+                                transcripts, neg_frames, rna_sequences, neg_orf_posteriors, neg_candidate_cds_matrices):
+                    for frame_i in range(N_FRAMES):
+                        for orf_i, orf_posterior in enumerate(orf_posterior_matrix[frame_i]):
+                            candidate_cds = candidate_cds_matrix[frame_i][orf_i]
+                            write_inferred_cds_discovery_mode(
+                                handle=handle,
+                                transcript=transcript,
+                                frame=frame,
+                                rna_sequence=rna_sequence,
+                                candidate_cds=candidate_cds,
+                                orf_posterior=orf_posterior,
+                                # This is the same formula used in State.decode()
+                                orf_start=candidate_cds.start * 3 + candidate_cds.frame,
+                                orf_stop=candidate_cds.stop * 3 + candidate_cds.frame
+                            )
 
             # logger.info('Writing out inferred CDS')
             # for transcript, state, frame, rna_sequence in zip(transcripts, states, frames, rna_sequences):
@@ -425,6 +467,16 @@ def infer_CDS(model_file, transcript_models, genome_track, mappability_tabix_pre
     logger.info('Finished')
 
 
+def serialize_output(results):
+    if isinstance(results, list):
+        return [serialize_output(r) for r in results]
+    if isinstance(results, dict):
+        return {k: serialize_output(v) for k, v in results.items()}
+    if isinstance(results, np.int64):
+        return int(results)
+    if isinstance(results, np.ndarray):
+        return list(results)
+    return results
 # if __name__=="__main__":
 #
 #     options = parse_args()

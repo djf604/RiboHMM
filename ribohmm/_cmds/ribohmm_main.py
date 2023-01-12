@@ -112,6 +112,8 @@ def populate_parser(parser: argparse.ArgumentParser):
     )
     infer_group.add_argument('--model-parameters',
                              help='Path to JSON file of model parameters generated with \'ribohmm learn-model\'')
+    # TODO Make the choices from some contstant pick list
+    infer_group.add_argument('--infer-algorithm', choices=('viterbi', 'discovery'), default='viterbi')
 
 
 def main(args=None):
@@ -122,73 +124,6 @@ def main(args=None):
     # Because the arguments --learn-only and --infer-only are store_false, the below statement works
     # to control which parts of the program run
     execute_ribohmm(args, learn=args['infer_only'], infer=args['learn_only'])
-
-
-# def common_args(parser):
-#     parser.add_argument('--reference-fasta', required=True,
-#                         help='Path to a reference genome in fasta format')
-#     parser.add_argument('--transcriptome-gtf', required=True,
-#                         help='Path to a transcriptome in gtf format')
-#
-#     parser.add_argument('--riboseq-bam', required=True,
-#                         help='Path to a BAM with riboseq mappings')
-#     parser.add_argument('--rnaseq-bam', help='Path to a BAM with RNAseq mappings')
-#     parser.add_argument('--riboseq-bam-index', help='Path to samtools index for Riboseq alignment file; if not '
-#                                                     'provided, will infer as alignment.bam.bai; if that file does '
-#                                                     'not exist, pysam will create it')
-#     parser.add_argument('--rnaseq-bam-index', help='Path to samtools index for RNAseq alignment file; if not '
-#                                                    'provided, will infer as alignment.bam.bai; if that file does '
-#                                                    'not exist, pysam will create it')
-#     parser.add_argument('--riboseq-counts-tabix', nargs='*',
-#                         help='Point to one or more counts BED files. See documentation for further details. '
-#                              'The counts files are expected to have a sibling tabix file.'
-#                              'A single star (*) can be given at the end of a filepath which denotes the input as a '
-#                              'prefix which will be expanded to include all matching files.')
-#     parser.add_argument('--rnaseq-counts-tabix', nargs='*',
-#                         help='Point to one or more counts BED files. See documentation for further details. '
-#                              'The counts files are expected to have a sibling tabix file.'
-#                              'A single star (*) can be given at the end of a filepath which denotes the input as a '
-#                              'prefix which will be expanded to include all matching files.')
-#
-#     parser.add_argument('--mappability-tabix-prefix', help='Path to mappability tabix output by '
-#                                                            '\'ribohmm mappability-calculate\'')
-#
-#     parser.add_argument('--log-output', help='Path to file to store statistics of the EM algorithm; not output '
-#                                              'if no path is given')
-#     parser.add_argument('--read-lengths', nargs='*', type=int, help='Space separated list of riboseq read lengths '
-#                                                                     '(default: 28 29 30 31)')
-#
-#     parser.add_argument('--purge-tabix', action='store_true',
-#                         help='Do not keep the generated tabix files')
-#     parser.add_argument('--kozak-model',
-#                         help='Path to kozak model (included with this package)')
-#
-#     parser.add_argument('--output-directory', required=True,
-#                         help='Path prefix for all output: generated tabix files, learned '
-#                              'model parameters, and final inference output')
-#
-#     parser.add_argument('--bgzip-path', help='Path to bgzip executable, if not in $PATH')
-#     parser.add_argument('--tabix-path', help='Path to tabix executable, if not in $PATH')
-#
-#
-#
-# def learn_args(parser):
-#     parser.add_argument('--model-parameters-output', help='If provided, path to output for JSON record of '
-#                                                           'learned model paramters')
-#     parser.add_argument('--batch-size', type=int, default=1000,
-#                         help='Number of transcripts used for learning model parameters (default: 1000)')
-#     parser.add_argument('--scale-beta', type=float, default=1e4,
-#                         help='Scaling factor for initial precision values (default: 1e4)')
-#     parser.add_argument('--min-tolerence', type=float, default=1e-4,
-#                         help='Convergence criterion for change in per-base marginal likelihood (default: 1e-4)')
-#     parser.add_argument('--restarts', type=int, default=1,
-#                         help='Number of re-runs of the algorithm (default: 1)')
-#
-#
-# def infer_args(parser):
-#     parser.add_argument('--model-parameters', required=True,
-#                         help='Path to JSON file of model parameters generated with '
-#                              '\'ribohmm learn-model\'')
 
 
 def execute_ribohmm(args, learn=True, infer=True):
@@ -286,7 +221,8 @@ def execute_ribohmm(args, learn=True, infer=True):
             mappability_tabix_prefix=args['mappability_tabix_prefix'],
             ribo_track=ribo_track,
             rnaseq_track=rnaseq_track,
-            output_directory=args['output_directory']
+            output_directory=args['output_directory'],
+            infer_algorithm=args['infer_algorithm']
         )
 
     if args['purge_tabix']:
