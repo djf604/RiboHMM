@@ -180,7 +180,7 @@ def infer_CDS(
     infer_algorithm='viterbi'
 ):
     logger.info('Starting infer_CDS()')
-    N_TRANSCRIPTS = 20  # Set to None to allow all transcripts
+    N_TRANSCRIPTS = None  # Set to None to allow all transcripts
     N_FRAMES = 3
     DEBUG_OUTPUT_FILENAME = 'feb07.json'
 
