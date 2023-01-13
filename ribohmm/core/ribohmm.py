@@ -1984,7 +1984,7 @@ def infer_coding_sequence(riboseq_footprint_pileups, codon_maps, transcript_norm
         datum.compute_log_probability(emission)
         state._forward_update(datum, transition)
         frame.update(datum, state)
-        state.decode(datum, transition, emission, frame)
+        state.decode(datum, transition)
 
     return states, frames
 
