@@ -381,14 +381,25 @@ class Data:
     def get_state_sequence(self, n_triplets, start, stop):
         seq = np.zeros(n_triplets, dtype=int)
         try:
+            # Setting stop codon to TTS
+            # seq[start - 1] = 1
+            # seq[start] = 2
+            # seq[start + 1] = 3
+            # seq[start + 2:stop - 1] = 4
+            # seq[stop - 1] = 5
+            # seq[stop] = 6  # TTS
+            # seq[stop + 1] = 7
+            # seq[stop + 2:] = 8
+
+            # Setting stop codon to 3'UTS-
             seq[start - 1] = 1
             seq[start] = 2
             seq[start + 1] = 3
-            seq[start + 2:stop - 1] = 4
-            seq[stop - 1] = 5
-            seq[stop] = 6
-            seq[stop + 1] = 7
-            seq[stop + 2:] = 8
+            seq[start + 2:stop - 2] = 4
+            seq[stop - 2] = 5
+            seq[stop - 1] = 6
+            seq[stop] = 7  # 3'UTS-
+            seq[stop + 1:] = 8
         except:
             pass  # Silently fail
         return list(seq)

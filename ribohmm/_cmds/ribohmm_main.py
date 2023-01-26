@@ -114,6 +114,8 @@ def populate_parser(parser: argparse.ArgumentParser):
                              help='Path to JSON file of model parameters generated with \'ribohmm learn-model\'')
     # TODO Make the choices from some contstant pick list
     infer_group.add_argument('--infer-algorithm', choices=('viterbi', 'discovery'), default='viterbi')
+    infer_group.add_argument('--dev-restrict-transcripts-to', type=int, help=argparse.SUPPRESS)
+    infer_group.add_argument('--dev-output-debug-data', help=argparse.SUPPRESS)
 
 
 def main(args=None):
@@ -222,7 +224,9 @@ def execute_ribohmm(args, learn=True, infer=True):
             ribo_track=ribo_track,
             rnaseq_track=rnaseq_track,
             output_directory=args['output_directory'],
-            infer_algorithm=args['infer_algorithm']
+            infer_algorithm=args['infer_algorithm'],
+            dev_restrict_transcripts_to=args['dev_restrict_transcripts_to'],
+            dev_output_debug_data=args['dev_output_debug_data']
         )
 
     if args['purge_tabix']:
