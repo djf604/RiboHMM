@@ -217,7 +217,7 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
                             orf_posterior=orf_posterior,
                             # This is the same formula used in State.decode()
                             orf_start=candidate_cds.start * 3 + candidate_cds.frame,
-                            orf_stop=(candidate_cds.stop + 1) * 3 + candidate_cds.frame
+                            orf_stop=candidate_cds.stop * 3 + candidate_cds.frame
                         )
 
             return discovery_mode_debug_metadata
