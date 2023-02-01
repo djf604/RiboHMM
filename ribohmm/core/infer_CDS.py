@@ -30,7 +30,9 @@ N_FRAMES = 3
 def write_inferred_cds_discovery_mode(handle, transcript, frame, rna_sequence, candidate_cds, orf_posterior,
                                       orf_start, orf_stop):
     try:
+        # print(f'Posteriors: {list(frame.posterior)} | {orf_posterior} * {frame.posterior[candidate_cds.frame]}')
         posterior = int(orf_posterior * frame.posterior[candidate_cds.frame] * 10000)
+        # print(f'###### {posterior}')
     except:
         posterior = 'NaN'
     tis = orf_start  # This is base position, not a state position
@@ -73,8 +75,11 @@ def write_inferred_cds_discovery_mode(handle, transcript, frame, rna_sequence, c
 def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
     posteriors = state.max_posterior*frame.posterior
     index = np.argmax(posteriors)
+    # print(f'Posteriors: {list(frame.posterior)} | {frame.posterior[index]}')
     tis = state.best_start[index]
     tts = state.best_stop[index]
+    # print(f'Stop codon: {rna_sequence[tts-3:tts]}')
+    # print(f'TTS (stop codon): {rna_sequence[tts:tts+3]}')
 
     # output is not a valid CDS
     if tis is None or tts is None:

@@ -357,8 +357,9 @@ class Data:
         if shifted_forward:
             local_start_codon_map = np.roll(local_start_codon_map, shift=1, axis=0)
             local_start_codon_map[0] = [0, 0, 0]  # np.roll wraps around, so set the first codon to 0s
-            local_stop_codon_map = np.roll(local_stop_codon_map, shift=1, axis=0)
+            local_stop_codon_map = np.roll(local_stop_codon_map, shift=2, axis=0)
             local_stop_codon_map[0] = [0, 0, 0]
+            local_stop_codon_map[1] = [0, 0, 0]
 
         N_FRAMES = 3
         n_triplets = local_start_codon_map.shape[0]
