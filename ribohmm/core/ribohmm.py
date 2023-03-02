@@ -444,10 +444,15 @@ class Frame(object):
 
         """
 
+        # Sum up the likelihoods for each frame in state.likelihood, then add in data.extra_log_probability
         self.posterior = outsum(state.likelihood) + data.extra_log_probability
+
+        # Perform softmax on the posteriors, so they can be interpreted as probabilities
         self.posterior = self.posterior - self.posterior.max()
         self.posterior = np.exp(self.posterior)
         self.posterior = self.posterior / self.posterior.sum()
+
+        print(f'Result: {outsum(state.likelihood)} | {data.extra_log_probability} | {outsum(state.likelihood) + data.extra_log_probability} |{self.posterior}')
 
     def __reduce__(self):
         return (rebuild_Frame, (self.posterior,))

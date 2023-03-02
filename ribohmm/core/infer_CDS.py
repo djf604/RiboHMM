@@ -30,7 +30,8 @@ N_FRAMES = 3
 def write_inferred_cds_discovery_mode(handle, transcript, frame, rna_sequence, candidate_cds, orf_posterior,
                                       orf_start, orf_stop):
     try:
-        # print(f'Posteriors: {list(frame.posterior)} | {orf_posterior} * {frame.posterior[candidate_cds.frame]}')
+        print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
+              f' Posteriors: {list(frame.posterior)} | {orf_posterior} * {frame.posterior[candidate_cds.frame]}')
         posterior = int(orf_posterior * frame.posterior[candidate_cds.frame] * 10000)
         # print(f'###### {posterior}')
     except:
@@ -68,14 +69,17 @@ def write_inferred_cds_discovery_mode(handle, transcript, frame, rna_sequence, c
                protein,
                len(transcript.exons),
                ','.join(map(str, [e[1] - e[0] for e in transcript.exons])) + ',',
-               ','.join(map(str, [transcript.start + e[0] for e in transcript.exons])) + ',']
+               ','.join(map(str, [transcript.start + e[0] for e in transcript.exons])) + ',',
+               candidate_cds.frame
+    ]
     handle.write(" ".join(map(str, towrite)) + '\n')
 
 
 def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
     posteriors = state.max_posterior*frame.posterior
     index = np.argmax(posteriors)
-    # print(f'Posteriors: {list(frame.posterior)} | {frame.posterior[index]}')
+    print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
+          f' Posteriors: {list(frame.posterior)} | {frame.posterior[index]}')
     tis = state.best_start[index]
     tts = state.best_stop[index]
     # print(f'Stop codon: {rna_sequence[tts-3:tts]}')
@@ -106,7 +110,9 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
                protein, 
                len(transcript.exons), 
                ','.join(map(str,[e[1]-e[0] for e in transcript.exons]))+',', 
-               ','.join(map(str,[transcript.start+e[0] for e in transcript.exons]))+',']
+               ','.join(map(str,[transcript.start+e[0] for e in transcript.exons]))+',',
+               index
+    ]
     handle.write(" ".join(map(str,towrite))+'\n')
 
 
@@ -259,7 +265,7 @@ def infer_CDS(
     handle = open(os.path.join(output_directory, 'inferred_CDS.bed'), 'w')
     towrite = ["chromosome", "start", "stop", "transcript_id", 
                "posterior", "strand", "cdstart", "cdstop", 
-               "protein_seq", "num_exons", "exon_sizes", "exon_starts"]
+               "protein_seq", "num_exons", "exon_sizes", "exon_starts", "frame"]
     handle.write(" ".join(map(str, towrite))+'\n')
 
     # Process 1000 transcripts at a time
