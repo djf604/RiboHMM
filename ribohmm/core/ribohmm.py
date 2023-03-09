@@ -166,6 +166,10 @@ class Data:
         #  - 3rd dim is state index, of size emission.S, which is 9
         # In this case, log probability is the log of the likelihood that
         self.log_probability = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
+        self.periodicity_model = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
+        self.occupancy_model = np.zeros((3, self.n_triplets, emission['S']), dtype=np.float64)
+
+        # Same as above TODO
         self.extra_log_probability = np.zeros((3,), dtype=np.float64)
 
         # missingness-types where 1 out of 3 positions are unmappable
@@ -260,6 +264,8 @@ class Data:
                 rate_log_probability[mask, :] = 0
 
                 # Store the log probability
+                self.periodicity_model[frame_i] += log_probability
+                self.occupancy_model[frame_i] += rate_log_probability
                 self.log_probability[frame_i] += log_probability + rate_log_probability
 
                 # likelihood of extra positions in transcript
@@ -2111,6 +2117,8 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         # For each candidate CDS in this transcript
         for candidate_cds, orf_emission_error in zip(all_candidate_cds, emission_errors):
             triplet_likelihoods = list()
+            triplet_periodicity_likelihoods = list()
+            triplet_occupancy_likelihoods = list()
             triplet_alpha_values = list()
             triplet_state_likelihood_values = list()
             triplet_states = list()
@@ -2137,6 +2145,8 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             for triplet_i in range(riboseq_data.log_probability.shape[1]):
                 triplet_state = get_triplet_state(triplet_i, start_pos=candidate_cds.start, stop_pos=candidate_cds.stop)
                 triplet_likelihoods.append(riboseq_data.log_probability[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_periodicity_likelihoods.append(riboseq_data.periodicity_model[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_occupancy_likelihoods.append(riboseq_data.occupancy_model[candidate_cds.frame, triplet_i, triplet_state])
                 triplet_alpha_values.append(state.alpha[candidate_cds.frame, triplet_i, triplet_state])
                 triplet_state_likelihood_values.append(state.likelihood[triplet_i, candidate_cds.frame])
                 # triplet_states.append(get_triplet_string(triplet_state))
@@ -2150,6 +2160,14 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                 'data_loglikelihood': {
                     'by_pos': triplet_likelihoods,
                     'sum': np.sum(triplet_likelihoods)
+                },
+                'data_loglikelihood_periodicity': {
+                    'by_pos': triplet_periodicity_likelihoods,
+                    'sum': np.sum(triplet_periodicity_likelihoods)
+                },
+                'data_loglikelihood_occupancy': {
+                    'by_pos': triplet_occupancy_likelihoods,
+                    'sum': np.sum(triplet_occupancy_likelihoods)
                 },
                 'state_alpha': {
                     'by_pos': triplet_alpha_values,
@@ -2183,6 +2201,10 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
             'data_logprob_full': riboseq_data.log_probability.tolist(),
+            'periodicity_model_full': riboseq_data.periodicity_model.tolist(),
+            'occupancy_model_full': riboseq_data.occupancy_model.tolist(),
+            'riboseq_counts_total_pileup': riboseq_data.total_pileup.tolist(),
+            'riboseq_counts_total_pileup_sum_footprints': riboseq_data.total_pileup.sum(axis=2).tolist(),
             # 'data_logprob_full': riboseq_data.log_likelihood.tolist(),
             'state_alpha_full': state.alpha.tolist(),
             # 'state_decode_alphas': state.decode_alphas.tolist(),
