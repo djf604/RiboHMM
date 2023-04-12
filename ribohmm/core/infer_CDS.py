@@ -32,7 +32,7 @@ def write_inferred_cds_discovery_mode(handle, transcript, frame, rna_sequence, c
     try:
         print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
               f' Posteriors: {list(frame.posterior)} | {orf_posterior} * {frame.posterior[candidate_cds.frame]}')
-        posterior = int(orf_posterior * frame.posterior[candidate_cds.frame] * 10000)
+        posterior = int(orf_posterior * frame.posterior[candidate_cds.frame] * 10_000)
         # print(f'###### {posterior}')
     except:
         posterior = 'NaN'
@@ -78,8 +78,8 @@ def write_inferred_cds_discovery_mode(handle, transcript, frame, rna_sequence, c
 def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
     posteriors = state.max_posterior*frame.posterior
     index = np.argmax(posteriors)
-    print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
-          f' Posteriors: {list(frame.posterior)} | {frame.posterior[index]}')
+    # print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
+    #       f' Posteriors: {list(frame.posterior)} | {frame.posterior[index]}')
     tis = state.best_start[index]
     tts = state.best_stop[index]
     # print(f'Stop codon: {rna_sequence[tts-3:tts]}')
@@ -176,6 +176,9 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
             for transcript, state, frame, rna_sequence in zip(transcripts, states, frames, rna_sequences):
                 write_inferred_cds(handle, transcript, state, frame, rna_sequence)
         elif infer_algorithm == 'discovery':
+            # transcripts = [t for t in transcripts if t.id == 'STRG.6219.1']
+            # transcripts = [t for t in transcripts if t.id == 'STRG.6390.5']
+            # transcripts = [t for t in transcripts if t.id == 'STRG.6326.5']
             logger.info(f'Running the Discovery algorithm over the {primary_strand} strand')
             pos_orf_posteriors, pos_candidate_cds_matrices, pos_frames, pos_data_log_probs = discovery_mode_data_logprob(
                 riboseq_footprint_pileups=footprint_counts,
@@ -247,6 +250,7 @@ def infer_CDS(
 ):
     logger.info('Starting infer_CDS()')
     N_TRANSCRIPTS = dev_restrict_transcripts_to  # Set to None to allow all transcripts
+    print(f'!!!!!!!!!! N Transcripts: {N_TRANSCRIPTS}')
     N_FRAMES = 3
     DEBUG_OUTPUT_FILENAME = 'feb07.json'
 
@@ -257,6 +261,7 @@ def infer_CDS(
 
     # load transcripts
     transcript_names = list(transcript_models.keys())[:N_TRANSCRIPTS]
+    print(f'!!!!! Size of transcripts: {len(transcript_names)}')
     logger.info('Number of transcripts: {}'.format(len(transcript_names)))
 
     # open output file handle

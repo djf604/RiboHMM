@@ -666,7 +666,7 @@ class State(object):
             print('Warning: Inf/Nan in start cross moment')
             pdb.set_trace()
 
-    def discovery_decode(self, data, transition):
+    def discovery_decode(self, data, transition, transcript):
         P = logistic(-1 * (transition['seqparam']['kozak'] * data.codon_map['kozak']
                            + transition['seqparam']['start'][data.codon_map['start']]))
         Q = logistic(-1 * transition['seqparam']['stop'][data.codon_map['stop']])
@@ -680,11 +680,30 @@ class State(object):
             n_orfs = orf_state_matrix[frame_i].shape[0]
             orf_posteriors.append(np.zeros(shape=n_orfs))
             for orf_i in range(n_orfs):
+                candidate_cds = candidate_cds_matrix[frame_i][orf_i]
+                orf_start = candidate_cds.start * 3 + candidate_cds.frame,
+                orf_stop = candidate_cds.stop * 3 + candidate_cds.frame
+                tis = orf_start  # This is base position, not a state position
+                tts = orf_stop
+                if transcript.strand == '+':
+                    cdstart = transcript.start + np.where(transcript.mask)[0][tis]
+                    cdstop = transcript.start + np.where(transcript.mask)[0][tts]
+                else:
+                    cdstart = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tts]
+                    cdstop = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tis]
+
+                print(f'Transcript id: {transcript.id}, Strand: {transcript.strand}, cdsstart: {cdstart}, '
+                      f'cdstop: {cdstop}')
+                print(orf_state_matrix[frame_i][orf_i])
+                print(orf_state_matrix[frame_i][orf_i].shape)
+                print(list(orf_state_matrix[frame_i][orf_i]))
+
                 alpha = utils.nplog(1) + data.log_probability[frame_i, 0, 0]
                 for triplet_i in range(1, orf_state_matrix[frame_i].shape[1]):
                     current_state = orf_state_matrix[frame_i][orf_i, triplet_i]
                     prev_state = orf_state_matrix[frame_i][orf_i, triplet_i - 1]
                     if current_state == 0:
+                        print('current state is 0')
                         try:
                             newalpha = alpha + log(1 - P[triplet_i, frame_i])  # What do we do when this is log(0)?
                         except:
@@ -2108,14 +2127,33 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
 
         for triplet_i in range(riboseq_data.n_triplets):
             e = exonic_positions[triplet_i * 3:(triplet_i + 1) * 3]
-            if e[2] - e[0] == 2:
-                e = [e[0], -1, -1]
+            print(f'Exonic positions: {e}, len: {len(exonic_positions)}')
+            print(f'First part of slice: {triplet_i * 3}')
+            print(f'Second part of slice: {(triplet_i + 1) * 3}')
+            try:
+                if e[2] - e[0] == 2:
+                    e = [e[0], -1, -1]
+            except Exception:
+                e = list(e)
+                print('In exception')
+                while len(e) < 3:
+                    e.append(0)
+                print(e)
+            print(f'Appending e: {list(e)}')
             triplet_genomic_positions.append(list(e))
 
         candidate_cds_likelihoods = list()
         all_candidate_cds = riboseq_data.get_candidate_cds_simple()
         # For each candidate CDS in this transcript
         for candidate_cds, orf_emission_error in zip(all_candidate_cds, emission_errors):
+            # print('Looking at candidate cds: {}'.format(candidate_cds))
+            # if candidate_cds not in {
+            #     CandidateCDS(start=1587148, stop=1593147, frame=0),
+            #     CandidateCDS(start=1587148, stop=1593132, frame=0)
+            # }:
+            #     continue
+            # print('$$$$$$$$$$$$$$$$$')
+            # print('Looking at candidate cds: {}'.format(candidate_cds))
             triplet_likelihoods = list()
             triplet_periodicity_likelihoods = list()
             triplet_occupancy_likelihoods = list()
@@ -2193,13 +2231,15 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         # These two matrices are the same dimensions
         # orf_posteriors_ is a matrix of orf posteriors, where the first dimension is the frame
         # candidate_cds_matrix are all CandidateCDS namedtuples
-        orf_posteriors_, candidate_cds_matrix = state.discovery_decode(data=riboseq_data, transition=transition)
+        orf_posteriors_, candidate_cds_matrix = state.discovery_decode(data=riboseq_data, transition=transition, transcript=transcript)
         orf_posteriors.append(orf_posteriors_)
         candidate_cds_matrices.append(candidate_cds_matrix)
         # print(orf_posteriors)
         state.decode(data=riboseq_data, transition=transition)
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
+            'n_triplets': riboseq_data.n_triplets,
+            'orf_posteriors': orf_posteriors_,
             'data_logprob_full': riboseq_data.log_probability.tolist(),
             'periodicity_model_full': riboseq_data.periodicity_model.tolist(),
             'occupancy_model_full': riboseq_data.occupancy_model.tolist(),

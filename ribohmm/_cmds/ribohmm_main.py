@@ -114,8 +114,8 @@ def populate_parser(parser: argparse.ArgumentParser):
                              help='Path to JSON file of model parameters generated with \'ribohmm learn-model\'')
     # TODO Make the choices from some contstant pick list
     infer_group.add_argument('--infer-algorithm', choices=('viterbi', 'discovery'), default='viterbi')
-    infer_group.add_argument('--dev-restrict-transcripts-to', type=int, help=argparse.SUPPRESS)
-    infer_group.add_argument('--dev-output-debug-data', help=argparse.SUPPRESS)
+    infer_group.add_argument('--dev-restrict-transcripts-to', type=int)
+    infer_group.add_argument('--dev-output-debug-data')
 
 
 def main(args=None):
