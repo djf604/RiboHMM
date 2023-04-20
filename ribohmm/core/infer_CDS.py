@@ -4,6 +4,7 @@ import warnings
 import json
 import datetime
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, wait, ThreadPoolExecutor
 
 import numpy as np
 
@@ -27,7 +28,7 @@ warnings.filterwarnings('ignore', '.*invalid value.*',)
 N_FRAMES = 3
 
 
-def write_inferred_cds_discovery_mode(handle, transcript, frame, rna_sequence, candidate_cds, orf_posterior,
+def write_inferred_cds_discovery_mode(transcript, frame, rna_sequence, candidate_cds, orf_posterior,
                                       orf_start, orf_stop):
     try:
         print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
@@ -39,16 +40,6 @@ def write_inferred_cds_discovery_mode(handle, transcript, frame, rna_sequence, c
     tis = orf_start  # This is base position, not a state position
     tts = orf_stop
 
-    # posteriors = state.max_posterior * frame.posterior
-    # index = np.argmax(posteriors)
-    # tis = state.best_start[index]
-    # tts = state.best_stop[index]
-
-    # output is not a valid CDS
-    # if tis is None or tts is None:
-    #     return None
-
-    # posterior = int(posteriors[index] * 10000)
     protein = utils.translate(rna_sequence[tis:tts])
     # identify TIS and TTS in genomic coordinates
     if transcript.strand == '+':
@@ -72,10 +63,10 @@ def write_inferred_cds_discovery_mode(handle, transcript, frame, rna_sequence, c
                ','.join(map(str, [transcript.start + e[0] for e in transcript.exons])) + ',',
                candidate_cds.frame
     ]
-    handle.write(" ".join(map(str, towrite)) + '\n')
+    return towrite
 
 
-def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
+def write_inferred_cds(transcript, state, frame, rna_sequence):
     posteriors = state.max_posterior*frame.posterior
     index = np.argmax(posteriors)
     # print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
@@ -113,12 +104,11 @@ def write_inferred_cds(handle, transcript, state, frame, rna_sequence):
                ','.join(map(str,[transcript.start+e[0] for e in transcript.exons]))+',',
                index
     ]
-    handle.write(" ".join(map(str,towrite))+'\n')
+    return towrite
 
 
 def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, rnaseq_track,
-                         mappability_tabix_prefix, infer_algorithm, model_params,
-                         handle):
+                         mappability_tabix_prefix, infer_algorithm, model_params):
     logger.info('!!!!!! Starting infer_on_transcripts()')
     if primary_strand not in {'+', '-'}:
         raise ValueError('primary_strand must be either + or -')
@@ -135,6 +125,8 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
     transcripts = [t for t, e in zip(transcripts, exon_counts) if np.all(e >= 5)]  # TODO Variable name should reflect change
     logger.info('In {} transcripts, all exons have at least 5 footprints'.format(len(transcripts)))
 
+    records_to_write = list()
+    discovery_mode_debug_metadata = list()
     if len(transcripts) > 0:
         codon_maps = list()
         logger.info('Loading RNA sequences')
@@ -174,7 +166,8 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
                 model_params['emission']
             )
             for transcript, state, frame, rna_sequence in zip(transcripts, states, frames, rna_sequences):
-                write_inferred_cds(handle, transcript, state, frame, rna_sequence)
+                record = write_inferred_cds(transcript, state, frame, rna_sequence)
+                records_to_write.append(record)
         elif infer_algorithm == 'discovery':
             # transcripts = [t for t in transcripts if t.id == 'STRG.6219.1']
             # transcripts = [t for t in transcripts if t.id == 'STRG.6390.5']
@@ -217,8 +210,7 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
                 for frame_i in range(N_FRAMES):
                     for orf_i, orf_posterior in enumerate(orf_posterior_matrix[frame_i]):
                         candidate_cds = candidate_cds_matrix[frame_i][orf_i]
-                        write_inferred_cds_discovery_mode(
-                            handle=handle,
+                        record = write_inferred_cds_discovery_mode(
                             transcript=transcript,
                             frame=frame,
                             rna_sequence=rna_sequence,
@@ -228,8 +220,8 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
                             orf_start=candidate_cds.start * 3 + candidate_cds.frame,
                             orf_stop=candidate_cds.stop * 3 + candidate_cds.frame
                         )
-
-            return discovery_mode_debug_metadata
+                        records_to_write.append(record)
+    return records_to_write, discovery_mode_debug_metadata
 
 
 
@@ -246,7 +238,9 @@ def infer_CDS(
     output_directory,
     infer_algorithm='viterbi',
     dev_restrict_transcripts_to=None,
-    dev_output_debug_data=None
+    dev_output_debug_data=None,
+    n_procs=1,
+    n_transcripts_per_proc=10
 ):
     logger.info('Starting infer_CDS()')
     N_TRANSCRIPTS = dev_restrict_transcripts_to  # Set to None to allow all transcripts
@@ -274,31 +268,43 @@ def infer_CDS(
     handle.write(" ".join(map(str, towrite))+'\n')
 
     # Process 1000 transcripts at a time
-    debug_metadata_ = defaultdict(list)
-    for n in range(int(np.ceil(len(transcript_names)/1000))):
-        logger.info('Processing transcripts {}-{}'.format(n * 1000, (n + 1) * 1000))
-        tnames = transcript_names[n*1000:(n+1)*1000]
-        transcripts_chunk = [transcript_models[name] for name in tnames]
+    debug_metadata = defaultdict(list)
+    records_to_write = list()
+    futs = list()
+    with ProcessPoolExecutor(max_workers=max(1, n_procs)) as executor:
+        for n in range(int(np.ceil(len(transcript_names)/n_transcripts_per_proc))):
+            logger.info('Processing transcripts {}-{}'.format(n * n_transcripts_per_proc, (n + 1) * n_transcripts_per_proc))
+            tnames = transcript_names[n*n_transcripts_per_proc:(n+1)*n_transcripts_per_proc]
+            transcripts_chunk = [transcript_models[name] for name in tnames]
 
-        for infer_strand in ['+', '-']:
-            debug_metadata = infer_on_transcripts(
-                primary_strand=infer_strand,
-                transcripts=transcripts_chunk,
-                ribo_track=ribo_track,
-                genome_track=genome_track,
-                rnaseq_track=rnaseq_track,
-                mappability_tabix_prefix=mappability_tabix_prefix,
-                infer_algorithm=infer_algorithm,
-                model_params=model_params,
-                handle=handle
-            )
-            if debug_metadata is not None:
-                debug_metadata_[infer_strand].extend(debug_metadata)
+            for infer_strand in ['+', '-']:
+                futs.append(executor.submit(
+                    infer_on_transcripts,
+                    primary_strand=infer_strand,
+                    transcripts=transcripts_chunk,
+                    ribo_track=ribo_track,
+                    genome_track=genome_track,
+                    rnaseq_track=rnaseq_track,
+                    mappability_tabix_prefix=mappability_tabix_prefix,
+                    infer_algorithm=infer_algorithm,
+                    model_params=model_params
+                ))
 
+    wait(futs)
+    for fut in futs:
+        records_to_write_, debug_metadata_ = fut.result()
+        print(f'Got {len(records_to_write_)} records to write')
+        records_to_write.extend(records_to_write_)
+        if debug_metadata_:
+            debug_metadata[infer_strand].extend(debug_metadata_)
+
+    # Output records
+    for record in records_to_write:
+        handle.write(" ".join(map(str, record)) + '\n')
     # Output debug output bundle
-    if debug_metadata_ and dev_output_debug_data:
+    if debug_metadata and dev_output_debug_data:
         with open(os.path.join(output_directory, dev_output_debug_data), 'w') as out:
-            json.dump(serialize_output({'pos': debug_metadata_['+'], 'neg': debug_metadata_['-']}), out)
+            json.dump(serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']}), out)
 
     logger.info('Closing handles')
     handle.close()

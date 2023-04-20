@@ -3,6 +3,7 @@ import json
 import argparse
 import logging
 import time
+from datetime import timedelta
 
 import pysam
 
@@ -116,6 +117,8 @@ def populate_parser(parser: argparse.ArgumentParser):
     infer_group.add_argument('--infer-algorithm', choices=('viterbi', 'discovery'), default='viterbi')
     infer_group.add_argument('--dev-restrict-transcripts-to', type=int)
     infer_group.add_argument('--dev-output-debug-data')
+    infer_group.add_argument('--n-procs', type=int, default=1)
+    infer_group.add_argument('--n-transcripts-per-proc', type=int, default=10)
 
 
 def main(args=None):
@@ -140,6 +143,9 @@ def execute_ribohmm(args, learn=True, infer=True):
     if args['kozak_model'] is not None and not os.path.isfile(args['kozak_model']):
         raise ValueError('Path to kozak model ({}) is invalid'.format(args['kozak_model']))
     inflate_kozak_model(args['kozak_model'])
+
+    # Get star time for runtime tracking
+    start_time = time.perf_counter()
 
     riboseq_counts_bed = convert_bams_to_bed(
         bam_files=args['riboseq_bams'],
@@ -226,8 +232,14 @@ def execute_ribohmm(args, learn=True, infer=True):
             output_directory=args['output_directory'],
             infer_algorithm=args['infer_algorithm'],
             dev_restrict_transcripts_to=args['dev_restrict_transcripts_to'],
-            dev_output_debug_data=args['dev_output_debug_data']
+            dev_output_debug_data=args['dev_output_debug_data'],
+            n_procs=args['n_procs'],
+            n_transcripts_per_proc=args['n_transcripts_per_proc']
         )
+
+    # Print out total runtime
+    elapsed_time = time.perf_counter() - start_time
+    print(f'Total runtime: {timedelta(seconds=elapsed_time)}')
 
     if args['purge_tabix']:
         if riboseq_counts_bed:

@@ -8,13 +8,12 @@ import ribohmm.utils as utils
 MIN_MAP_QUAL = 10
 
 class Genome():
-
     def __init__(self, fasta_filename, map_filename, read_lengths):
-
-        self._seq_handle = pysam.FastaFile(fasta_filename)
+        self._seq_handle = None
+        self.fasta_filename = fasta_filename
+        self.map_filename = map_filename
         # Mappability
-        self._map_handles = [pysam.TabixFile(map_filename+'_%d.gz'%r)
-                             for r in read_lengths]
+        self._map_handles = None
         self._read_lengths = read_lengths
 
     def get_sequence(self, transcripts):
@@ -22,6 +21,8 @@ class Genome():
         :param transcripts:
         :return:
         """
+        if self._seq_handle is None:
+            self._seq_handle = pysam.FastaFile(self.fasta_filename)
         sequences = []
         for transcript in transcripts:
 
@@ -44,6 +45,9 @@ class Genome():
         return sequences
 
     def get_mappability(self, transcripts):
+        if self._map_handles is None:
+            self._map_handles = [pysam.TabixFile(self.map_filename+'_%d.gz'%r)
+                                 for r in self._read_lengths]
 
         mappabilities = []
         for transcript in transcripts:
@@ -77,9 +81,10 @@ class Genome():
         return mappabilities
             
     def close(self):
-
-        self._seq_handle.close()
-        ig = [handle.close() for handle in self._map_handles]
+        if self._seq_handle is not None:
+            self._seq_handle.close()
+        if self._map_handles is not None:
+            ig = [handle.close() for handle in self._map_handles]
 
 class RiboSeq():
 
@@ -90,7 +95,8 @@ class RiboSeq():
         :param riboseq_counts_bed:
         :param read_lengths:
         """
-        self._counts_tbx = pysam.TabixFile(riboseq_counts_bed)
+        self.riboseq_counts_bed = riboseq_counts_bed
+        self._counts_tbx = None
         self._read_lengths = read_lengths
 
     # TODO I think this could be cached to speed up subsequent access
@@ -104,6 +110,8 @@ class RiboSeq():
         :param transcripts: list of load_data.Transcript objects
         :return: list np.Array of shape (n_bases|n_exons, n_read_lengths)
         """
+        if self._counts_tbx is None:
+            self._counts_tbx = pysam.TabixFile(self.riboseq_counts_bed)
         read_counts = list()
         for transcript in transcripts:
             tscpt_counts_df = pd.DataFrame(index=range(transcript.mask.shape[0]), columns=self._read_lengths)
@@ -152,7 +160,8 @@ class RiboSeq():
         return self._read_lengths
 
     def close(self):
-        self._counts_tbx.close()
+        if self._counts_tbx is not None:
+            self._counts_tbx.close()
 
 
 class RnaSeq():
@@ -160,15 +169,18 @@ class RnaSeq():
 
     def __init__(self, rnaseq_counts_bed):
         # Counts
-        self._counts_tbx = pysam.TabixFile(rnaseq_counts_bed)
+        self.rnaseq_counts_bed = rnaseq_counts_bed
+        self._counts_tbx = None
         self.total = 0
-        for chrom in self._counts_tbx.contigs:
-            self.total += reduce(
-                lambda x, y: x + y,
-                (int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom))
-            )
 
     def get_total_counts(self, transcripts):
+        if self._counts_tbx is None:
+            self._counts_tbx = pysam.TabixFile(self.rnaseq_counts_bed)
+            for chrom in self._counts_tbx.contigs:
+                self.total += reduce(
+                    lambda x, y: x + y,
+                    (int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom))
+                )
         total_counts = list()
         for transcript in transcripts:
             mask = transcript.mask if transcript.strand == '+' else transcript.mask[::-1]
@@ -184,7 +196,8 @@ class RnaSeq():
         return np.array(total_counts)
 
     def close(self):
-        self._counts_tbx.close()
+        if self._counts_tbx is not None:
+            self._counts_tbx.close()
 
 
 class Transcript():
