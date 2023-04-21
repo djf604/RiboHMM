@@ -147,6 +147,11 @@ def execute_ribohmm(args, learn=True, infer=True):
     # Get star time for runtime tracking
     start_time = time.perf_counter()
 
+    # Create the output directory, if it does not already exist
+    if not os.path.isdir(args['output_directory']):
+        os.makedirs(args['output_directory'], exist_ok=True)
+        print('Output directory {} did not exist, so it was created'.format(args['output_directory']))
+
     riboseq_counts_bed = convert_bams_to_bed(
         bam_files=args['riboseq_bams'],
         output_prefix=os.path.join(
