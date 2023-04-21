@@ -69,7 +69,6 @@ def main(args=None):
 
     footprint_lengths = args['footprint_lengths'] or [28, 29, 30, 31]
 
-
     print('Loading FASTA')
     seq_handle = pysam.FastaFile(args['fasta_reference'])
     # load transcripts

@@ -46,7 +46,7 @@ class Genome():
 
     def get_mappability(self, transcripts):
         if self._map_handles is None:
-            self._map_handles = [pysam.TabixFile(self.map_filename+'_%d.gz'%r)
+            self._map_handles = [pysam.TabixFile(self.map_filename+'_%d.bed.gz'%r)
                                  for r in self._read_lengths]
 
         mappabilities = []

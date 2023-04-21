@@ -42,11 +42,6 @@ def main(args=None):
         pysam.index(args['mappability_bam'])
     sam_handle = pysam.AlignmentFile(args['mappability_bam'], 'rb')
 
-    # Check for index alongside BAM file, if not then create
-    # if not os.path.isfile(args['mappability_bam'] + '.bai'):
-    #     print('BAM index does not exist, creating')
-    #     pysam.index(args['mappability_bam'])
-
     for cname, clen in zip(sam_handle.references, sam_handle.lengths):
 
         # fetch reads in chromosome

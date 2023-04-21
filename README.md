@@ -51,10 +51,10 @@ originate from the given transcriptome. This is done with the ``ribohmm-utils`` 
     ```
 
     The above will produces four files:
-    * ``example_output_length28.fq.gz``
-    * ``example_output_length29.fq.gz``
-    * ``example_output_length30.fq.gz``
-    * ``example_output_length31.fq.gz``
+    * ``example_output_footprint28.fq.gz``
+    * ``example_output_footprint29.fq.gz``
+    * ``example_output_footprint30.fq.gz``
+    * ``example_output_footprint31.fq.gz``
 
 2. Align the created synthetic FASTQs, using the same mapping strategy used for the original ribosome 
 footprint profiling data. The BAM alignments will be the input into the next step.
