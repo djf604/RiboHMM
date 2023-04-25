@@ -85,6 +85,9 @@ def populate_parser(parser: argparse.ArgumentParser):
                               help='Path prefix for all output: generated counts and tabix files, learned '
                                    'model parameters, and final inference output'
     )
+    common_group.add_argument('--disable-cache', action='store_true',
+                              help='If supplied, will disable use of the transcript cache')
+    common_group.add_argument('--cache-dir', help='Directory in which to store the cache, defaults to ~/.ribohmm')
 
     # External software paths
     common_group.add_argument('--bgzip-path', help='Path to bgzip executable, if not in $PATH')
@@ -188,7 +191,11 @@ def execute_ribohmm(args, learn=True, infer=True):
     logger.debug('inflate_genome_track:{}'.format(time.time() - start))
     print('Inflating transcript models ')
     start = time.time()
-    gtf_model = load_data.load_gtf(args['transcriptome_gtf'])
+    gtf_model = load_data.load_gtf(
+        args['transcriptome_gtf'],
+        use_cache=not args['disable_cache'],
+        cache_dir=args['cache_dir']
+    )
     logger.debug('inflate_transcriptome:{}'.format(time.time() - start))
     print('Inflating riboseq model')
     start = time.time()

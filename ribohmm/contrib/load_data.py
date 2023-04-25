@@ -289,7 +289,7 @@ class Transcript():
             raise ValueError
 
 
-def load_gtf(filename, use_cache=True):
+def load_gtf(filename, use_cache=True, cache_dir=None):
     """
     Returns a dictionary of transcript_id::str -> Transcript
     :param filename:
@@ -301,29 +301,18 @@ def load_gtf(filename, use_cache=True):
     import dill
     import hashlib
     if use_cache:
-        cache_dir = os.path.join(os.path.expanduser('~'), '.ribohmm')
+        cache_dir = cache_dir or os.path.join(os.path.expanduser('~'), '.ribohmm')
+        if not os.path.isdir(cache_dir):
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+            except:
+                raise OSError(f'Could not create directory {cache_dir}')
         transcr_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
         try:
             with open(os.path.join(cache_dir, 'transcr.{}.dill'.format(transcr_model_md5)), 'rb') as cache_in:
                 return dill.load(cache_in)
         except:
             pass  # Silently fail, the cache does not exist
-
-
-    # cached_transcr_models = [c.split('.')[1] for c in os.listdir(cache_dir) if c.startswith('transcr_')]
-    # proposed_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
-    # if proposed_model_md5 in cached_transcr_models:
-    #     return dill.load(open(cached_models[proposed_model_md5]))
-    #
-    #
-    #
-    # cached_models_path = os.path.join(os.path.expanduser('~'), '.ribohmm', 'cached_transcr_md5s.dill')
-    # if os.path.isfile(cached_models_path):
-    #     cached_models = dill.load(open(cached_models_path))
-    #     proposed_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
-    #     if proposed_model_md5 in cached_models.keys():
-    #         return dill.load(open(cached_models[proposed_model_md5]))
-
 
     transcripts = dict()
     handle = open(filename, "r")
@@ -384,25 +373,6 @@ def load_gtf(filename, use_cache=True):
                 strand=strand,
                 attrs=attrs
             )
-
-
-
-        # try:
-        #
-        #     # if transcript is in dictionary, only parse exons
-        #     """Check if transcript is already in the dictionary"""
-        #     transcripts[transcript_id]
-        #     if data[2]=='exon':
-        #         transcripts[transcript_id].add_exon(data)
-        #     else:
-        #         pass
-        #
-        # except KeyError:
-        #     """Will except to here if transcript_id is not yet in transcripts dict"""
-        #
-        #     if data[2]=='transcript':
-        #         # initialize new transcript
-        #         transcripts[transcript_id] = Transcript(data, attr)
                 
     handle.close()
 

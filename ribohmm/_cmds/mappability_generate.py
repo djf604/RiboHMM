@@ -14,6 +14,9 @@ def populate_parser(parser):
     parser.add_argument('--footprint-lengths', type=int, nargs='*',
                         help='Length of ribosome footprint (default: 28 29 30 31)')
     parser.add_argument('--output-fastq-stub', help='Prefix of output fastq file')
+    parser.add_argument('--disable-cache', action='store_true',
+                        help='If supplied, will disable use of the transcript cache')
+    parser.add_argument('--cache-dir', help='Directory in which to store the cache, defaults to ~/.ribohmm')
 
 
 def write_fasta(fastq_handle, sequence, transcript, footprint_length, exon_mask=None, strand=None):
@@ -73,7 +76,7 @@ def main(args=None):
     seq_handle = pysam.FastaFile(args['fasta_reference'])
     # load transcripts
     print('Loading transcripts')
-    transcripts = load_gtf(args['gtf_file'])
+    transcripts = load_gtf(args['gtf_file'], use_cache=not args['disable_cache'], cache_dir=args['cache_dir'])
     print('Loaded {} transcripts'.format(len(transcripts)))
     for footprint_length in footprint_lengths:
         print('Starting mappability generate for footprint length {}'.format(footprint_length))
