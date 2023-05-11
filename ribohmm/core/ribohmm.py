@@ -458,7 +458,7 @@ class Frame(object):
         self.posterior = np.exp(self.posterior)
         self.posterior = self.posterior / self.posterior.sum()
 
-        print(f'Result: {outsum(state.likelihood)} | {data.extra_log_probability} | {outsum(state.likelihood) + data.extra_log_probability} |{self.posterior}')
+        # print(f'Result: {outsum(state.likelihood)} | {data.extra_log_probability} | {outsum(state.likelihood) + data.extra_log_probability} |{self.posterior}')
 
     def __reduce__(self):
         return (rebuild_Frame, (self.posterior,))
@@ -692,18 +692,18 @@ class State(object):
                     cdstart = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tts]
                     cdstop = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tis]
 
-                print(f'Transcript id: {transcript.id}, Strand: {transcript.strand}, cdsstart: {cdstart}, '
-                      f'cdstop: {cdstop}')
-                print(orf_state_matrix[frame_i][orf_i])
-                print(orf_state_matrix[frame_i][orf_i].shape)
-                print(list(orf_state_matrix[frame_i][orf_i]))
+                # print(f'Transcript id: {transcript.id}, Strand: {transcript.strand}, cdsstart: {cdstart}, '
+                #       f'cdstop: {cdstop}')
+                # print(orf_state_matrix[frame_i][orf_i])
+                # print(orf_state_matrix[frame_i][orf_i].shape)
+                # print(list(orf_state_matrix[frame_i][orf_i]))
 
                 alpha = utils.nplog(1) + data.log_probability[frame_i, 0, 0]
                 for triplet_i in range(1, orf_state_matrix[frame_i].shape[1]):
                     current_state = orf_state_matrix[frame_i][orf_i, triplet_i]
                     prev_state = orf_state_matrix[frame_i][orf_i, triplet_i - 1]
                     if current_state == 0:
-                        print('current state is 0')
+                        # print('current state is 0')
                         try:
                             newalpha = alpha + log(1 - P[triplet_i, frame_i])  # What do we do when this is log(0)?
                         except:
@@ -2127,9 +2127,9 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
 
         for triplet_i in range(riboseq_data.n_triplets):
             e = exonic_positions[triplet_i * 3:(triplet_i + 1) * 3]
-            print(f'Exonic positions: {e}, len: {len(exonic_positions)}')
-            print(f'First part of slice: {triplet_i * 3}')
-            print(f'Second part of slice: {(triplet_i + 1) * 3}')
+            # print(f'Exonic positions: {e}, len: {len(exonic_positions)}')
+            # print(f'First part of slice: {triplet_i * 3}')
+            # print(f'Second part of slice: {(triplet_i + 1) * 3}')
             try:
                 if e[2] - e[0] == 2:
                     e = [e[0], -1, -1]
@@ -2139,7 +2139,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                 while len(e) < 3:
                     e.append(0)
                 print(e)
-            print(f'Appending e: {list(e)}')
+            # print(f'Appending e: {list(e)}')
             triplet_genomic_positions.append(list(e))
 
         candidate_cds_likelihoods = list()

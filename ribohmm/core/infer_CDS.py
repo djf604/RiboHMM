@@ -31,8 +31,8 @@ N_FRAMES = 3
 def write_inferred_cds_discovery_mode(transcript, frame, rna_sequence, candidate_cds, orf_posterior,
                                       orf_start, orf_stop):
     try:
-        print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
-              f' Posteriors: {list(frame.posterior)} | {orf_posterior} * {frame.posterior[candidate_cds.frame]}')
+        # print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
+        #       f' Posteriors: {list(frame.posterior)} | {orf_posterior} * {frame.posterior[candidate_cds.frame]}')
         posterior = int(orf_posterior * frame.posterior[candidate_cds.frame] * 10_000)
         # print(f'###### {posterior}')
     except:
@@ -300,7 +300,9 @@ def infer_CDS(
 
     # Output records
     for record in records_to_write:
-        handle.write(" ".join(map(str, record)) + '\n')
+        if record is not None:
+            print(f'Writing record: {record}')
+            handle.write(" ".join(map(str, record)) + '\n')
     # Output debug output bundle
     if debug_metadata and dev_output_debug_data:
         with open(os.path.join(output_directory, dev_output_debug_data), 'w') as out:
