@@ -135,7 +135,7 @@ class RnaSequence(object):
         # cdef double score
 
         if not (cls._kozak_model_freq and cls._kozak_model_altfreq):
-            raise ValueError('Kozak models have no been loaded')
+            raise ValueError('Kozak models have not been loaded')
 
         score = 0
         for i, s in enumerate(seq):

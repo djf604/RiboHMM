@@ -342,8 +342,9 @@ class Transcript():
 
             # order exons
             """Sort self.exons::list by start coordinate"""
-            order = np.argsort(np.array([e[0] for e in self.exons]))
-            self.exons = [[self.exons[o][0],self.exons[o][1]] for o in order]
+            # order = np.argsort(np.array([e[0] for e in self.exons]))
+            # self.exons = [[self.exons[o][0],self.exons[o][1]] for o in order]
+            self.exons = sorted(self.exons)
 
             # extend transcript boundaries, if needed
             self.start = min([self.start, self.exons[0][0]])

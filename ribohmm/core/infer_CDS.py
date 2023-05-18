@@ -78,7 +78,9 @@ def write_inferred_cds(transcript, state, frame, rna_sequence):
 
     # output is not a valid CDS
     if tis is None or tts is None:
-        return None
+        raise ValueError(f'Could not find inference for transcript at '
+                         f'{transcript.chromosome}:{transcript.start}:{transcript.stop}'
+                         f':{transcript.strand}:{transcript.id}')
 
     posterior = int(posteriors[index]*10000) 
     protein = utils.translate(rna_sequence[tis:tts])
@@ -301,8 +303,10 @@ def infer_CDS(
     # Output records
     for record in records_to_write:
         if record is not None:
-            print(f'Writing record: {record}')
-            handle.write(" ".join(map(str, record)) + '\n')
+            try:
+                handle.write(" ".join(map(str, record)) + '\n')
+            except ValueError as e:
+                logger.warning(str(e))
     # Output debug output bundle
     if debug_metadata and dev_output_debug_data:
         with open(os.path.join(output_directory, dev_output_debug_data), 'w') as out:
