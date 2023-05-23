@@ -12,7 +12,7 @@ MIN_MAP_QUAL = 10
 
 import logging
 logging.basicConfig(
-    format='[%(asctime)s.%(msecs)03d] %(message)s',
+    format='[%(asctime)s.%(msecs)03d|%(levelname)s] %(message)s',
     datefmt='%d%b%Y %H:%M:%S',
     level=logging.INFO
 )

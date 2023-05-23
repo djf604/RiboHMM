@@ -14,7 +14,7 @@ from ribohmm.core.ribohmm import infer_coding_sequence, discovery_mode_data_logp
 
 import logging
 logging.basicConfig(
-    format='[%(asctime)s.%(msecs)03d] %(message)s',
+    format='[%(asctime)s.%(msecs)03d|%(levelname)s] %(message)s',
     datefmt='%d%b%Y %H:%M:%S',
     level=logging.INFO
 )
@@ -80,7 +80,7 @@ def write_inferred_cds(transcript, state, frame, rna_sequence):
     if tis is None or tts is None:
         raise ValueError(f'Could not find inference for transcript at '
                          f'{transcript.chromosome}:{transcript.start}:{transcript.stop}'
-                         f':{transcript.strand}:{transcript.id}')
+                         f':{transcript.strand}:{transcript.id} | tis: {tis} tts: {tts}')
 
     posterior = int(posteriors[index]*10000) 
     protein = utils.translate(rna_sequence[tis:tts])
