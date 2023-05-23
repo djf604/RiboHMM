@@ -2,6 +2,14 @@ import numpy as np
 from pkg_resources import Requirement, resource_listdir, resource_filename
 from ribohmm.utils import STARTCODONS, STOPCODONS
 
+import logging
+logging.basicConfig(
+    format='[%(asctime)s.%(msecs)03d|%(levelname)s] %(message)s',
+    datefmt='%d%b%Y %H:%M:%S',
+    level=logging.DEBUG
+)
+logger = logging.getLogger('viterbi_log')
+
 # set regex for start and stop codons
 STARTS = {codon_name: i for i, codon_name in enumerate(STARTCODONS, start=1)}
 STOPS = {codon_name: i for i, codon_name in enumerate(STOPCODONS, start=1)}
@@ -26,6 +34,8 @@ STOPS = {codon_name: i for i, codon_name in enumerate(STOPCODONS, start=1)}
 
 
 def get_resource_kozak_path():
+    logger.debug('In function get_resource_kozak_path()')
+    logger.debug('Loading kozak model from path: {}'.format(resource_filename(Requirement.parse('ribohmm'), 'ribohmm/include/kozak_model.npz')))
     return resource_filename(Requirement.parse('ribohmm'), 'ribohmm/include/kozak_model.npz')
 
 
@@ -33,16 +43,25 @@ def inflate_kozak_model(model_path=None):
     """
     Inflates and stores the Kozak model as class attributes of ``RnaSequence``
     """
+    logger.debug('In function inflate_kozak_model()')
     if model_path is None:
+        logger.debug('model_path is None')
         model_path = get_resource_kozak_path()
+        logger.debug('Got model path as {}'.format(model_path))
     kozak_model = np.load(model_path)
+    logger.debug('Loaded kozak model')
     FREQ = dict([(c, np.log2(row)) for c, row in zip(['A', 'U', 'G', 'C'], kozak_model['freq'])])
+    logger.debug('Calculated FREQ')
     ALTFREQ = dict([(c, np.log2(row)) for c, row in zip(['A', 'U', 'G', 'C'], kozak_model['altfreq'])])
+    logger.debug('Calculated ALTFREQ')
     for c in ['A', 'U', 'G', 'C']:
         FREQ[c][9:12] = ALTFREQ[c][9:12]
+    logger.debug('Assigned some ALTFREQ to FREQ')
 
     RnaSequence._kozak_model_freq = FREQ
+    logger.debug('Assigned FREQ to RnaSequence._kozak_model_freq')
     RnaSequence._kozak_model_altfreq = ALTFREQ
+    logger.debug('Assigned ALTFREQ to RnaSequence._kozak_model_altfreq')
 
 
 class RnaSequence(object):
@@ -129,12 +148,14 @@ class RnaSequence(object):
     # @cython.nonecheck(False)
     @classmethod
     def pwm_score(cls, seq):
+        logger.debug('In method pwm_score()')
 
         # cdef long i
         # cdef str s
         # cdef double score
 
         if not (cls._kozak_model_freq and cls._kozak_model_altfreq):
+            logger.debug('not (cls._kozak_model_freq and cls._kozak_model_altfreq)')
             raise ValueError('Kozak models have not been loaded')
 
         score = 0
@@ -144,4 +165,5 @@ class RnaSequence(object):
             except KeyError:
                 pass
 
+        logger.debug('Completed function pwm_score()')
         return score

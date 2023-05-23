@@ -17,6 +17,14 @@ from ribohmm.contrib import load_data
 BEFORE_EXT = 0
 logger = logging.getLogger('main')
 
+import logging
+logging.basicConfig(
+    format='[%(asctime)s.%(msecs)03d|%(levelname)s] %(message)s',
+    datefmt='%d%b%Y %H:%M:%S',
+    level=logging.DEBUG
+)
+logger = logging.getLogger('viterbi_log')
+
 
 def populate_parser(parser: argparse.ArgumentParser):
     learn_infer_flag_group = parser.add_argument_group(title='Flow Control')
@@ -145,7 +153,10 @@ def execute_ribohmm(args, learn=True, infer=True):
     # Validate path to Kozak model, then inflate
     if args['kozak_model'] is not None and not os.path.isfile(args['kozak_model']):
         raise ValueError('Path to kozak model ({}) is invalid'.format(args['kozak_model']))
+    logger.debug('About to inflat kozak model')
+    logger.debug('argument kozak-model: {}'.format(args['kozak_model']))
     inflate_kozak_model(args['kozak_model'])
+    logger.debug('Inflated kozak model')
 
     # Get star time for runtime tracking
     start_time = time.perf_counter()
