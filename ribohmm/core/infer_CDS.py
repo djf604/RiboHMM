@@ -78,9 +78,10 @@ def write_inferred_cds(transcript, state, frame, rna_sequence):
 
     # output is not a valid CDS
     if tis is None or tts is None:
-        raise ValueError(f'Could not find inference for transcript at '
-                         f'{transcript.chromosome}:{transcript.start}:{transcript.stop}'
-                         f':{transcript.strand}:{transcript.id} | tis: {tis} tts: {tts}')
+        logger.warning(f'Could not find inference for transcript at '
+                       f'{transcript.chromosome}:{transcript.start}:{transcript.stop}'
+                       f':{transcript.strand}:{transcript.id} | tis: {tis} tts: {tts}')
+        return None
 
     posterior = int(posteriors[index]*10000) 
     protein = utils.translate(rna_sequence[tis:tts])
