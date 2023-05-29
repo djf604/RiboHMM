@@ -44,6 +44,7 @@ def inflate_kozak_model(model_path=None):
     Inflates and stores the Kozak model as class attributes of ``RnaSequence``
     """
     logger.debug('In function inflate_kozak_model()')
+    logger.debug('RnaSequence id: {}'.format(id(RnaSequence)))
     if model_path is None:
         logger.debug('model_path is None')
         model_path = get_resource_kozak_path()
@@ -62,6 +63,7 @@ def inflate_kozak_model(model_path=None):
     logger.debug('Assigned FREQ to RnaSequence._kozak_model_freq')
     RnaSequence._kozak_model_altfreq = ALTFREQ
     logger.debug('Assigned ALTFREQ to RnaSequence._kozak_model_altfreq')
+    logger.debug('RnaSequence id: {}'.format(id(RnaSequence)))
 
 
 class RnaSequence(object):
@@ -149,6 +151,7 @@ class RnaSequence(object):
     @classmethod
     def pwm_score(cls, seq):
         logger.debug('In method pwm_score()')
+        logger.debug('RnaSequence (self) id: {}'.format(id(cls)))
 
         # cdef long i
         # cdef str s
