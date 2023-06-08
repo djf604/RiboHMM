@@ -398,7 +398,7 @@ def load_gtf(filename, use_cache=True, cache_dir=None):
         except:
             pass  # Silently fail, the cache does not exist
 
-    transcripts = dict()
+    transcripts, exon_cache = dict(), list()
     handle = open(filename, "r")
 
     print('Reading in GTF file')
@@ -445,10 +445,13 @@ def load_gtf(filename, use_cache=True, cache_dir=None):
         strand = gtf_record[6].strip()
 
         transcript_id = attrs.get('transcript_id')
-        if transcript_id in transcripts and gtf_record[2].strip() == 'exon':
-            # TODO I think it would be a good idea to have an 'exon cache' and add exons after all main transcript
-            # records have been added
-            transcripts[transcript_id].add_exon(start, stop)
+        if gtf_record[2].strip() == 'exon':
+            if transcript_id in transcripts:
+                # TODO I think it would be a good idea to have an 'exon cache' and add exons after all main transcript
+                # records have been added
+                transcripts[transcript_id].add_exon(start, stop)
+            else:
+                exon_cache.append((transcript_id, start, stop))
         elif transcript_id not in transcripts and gtf_record[2].strip() == 'transcript':
             transcripts[transcript_id] = Transcript(
                 chrom, start, stop,
@@ -459,6 +462,11 @@ def load_gtf(filename, use_cache=True, cache_dir=None):
             )
                 
     handle.close()
+
+    # Apply exon cache
+    for exon_spec in exon_cache:
+        transcript_id, start, stop = exon_spec
+        transcripts[transcript_id].add_exon(start, stop)
 
     # generate transcript models
     print('Generating transcript models ({})'.format(len(transcripts)))
