@@ -149,7 +149,7 @@ class RnaSequence(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     @classmethod
-    def pwm_score(cls, seq):
+    def pwm_score(cls, seq, kozak_model_filepath=None):
         logger.debug('In method pwm_score()')
         logger.debug('RnaSequence (self) id: {}'.format(id(cls)))
 
@@ -159,7 +159,10 @@ class RnaSequence(object):
 
         if not (cls._kozak_model_freq and cls._kozak_model_altfreq):
             logger.debug('not (cls._kozak_model_freq and cls._kozak_model_altfreq)')
-            raise ValueError('Kozak models have not been loaded')
+            try:
+                inflate_kozak_model(model_path=kozak_model_filepath)
+            except:
+                raise ValueError('Kozak model could not be loaded')
 
         score = 0
         for i, s in enumerate(seq):
