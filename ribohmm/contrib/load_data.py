@@ -52,6 +52,7 @@ class Genome():
             # get RNA sequence
             seq = ''.join(['U' if s=='T' else s for s in seq])
             sequences.append(seq)
+            transcript.sequence = seq
             
         return sequences
 

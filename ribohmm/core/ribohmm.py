@@ -17,6 +17,11 @@ solvers.options['maxiters'] = 300
 solvers.options['show_progress'] = False
 CandidateCDS = namedtuple('CandidateCDS', 'frame start stop')
 
+
+def printif(str, condition):
+    if condition:
+        print(str)
+
 def logistic(x):
     return 1 / (1 + np.exp(x))
 
@@ -385,7 +390,8 @@ class Data:
 
         return candidate_cds
 
-    def get_state_sequence(self, n_triplets, start, stop):
+    @classmethod
+    def get_state_sequence(cls, n_triplets, start, stop):
         seq = np.zeros(n_triplets, dtype=int)
         try:
             # Setting stop codon to TTS
@@ -420,6 +426,9 @@ class Data:
         candidate_cds_ = [list(), list(), list()]
 
         for candidate_cds in self.get_candidate_cds_simple():
+            # n_triplets_calculated = int((candidate_cds.stop - candidate_cds.start) / 3)
+            # if n_triplets != n_triplets_calculated:
+            #     print('********************************** It was not the same: {} != {}'.format(n_triplets, n_triplets_calculated))
             state_seq = self.get_state_sequence(n_triplets, candidate_cds.start, candidate_cds.stop)
             orf_state_matrix_[candidate_cds.frame].append(state_seq)
             candidate_cds_[candidate_cds.frame].append(candidate_cds)
@@ -692,6 +701,12 @@ class State(object):
                     cdstart = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tts]
                     cdstop = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tis]
 
+                is_interest = (int(cdstart), int(cdstop)) == (6947755, 6947803) or (int(cdstart), int(cdstop)) == (6947779, 6947803)
+                printif('&&&&&&&!!!!!!! {}'.format(cdstart), is_interest)
+                # if (int(cdstart), int(cdstop)) == (6947755, 6947803) or (int(cdstart), int(cdstop)) == (
+                # 6947779, 6947803):
+                #     print('&&&&&&& {}'.format(cdstart))
+
                 # print(f'Transcript id: {transcript.id}, Strand: {transcript.strand}, cdsstart: {cdstart}, '
                 #       f'cdstop: {cdstop}')
                 # print(orf_state_matrix[frame_i][orf_i])
@@ -700,19 +715,25 @@ class State(object):
 
                 alpha = utils.nplog(1) + data.log_probability[frame_i, 0, 0]
                 for triplet_i in range(1, orf_state_matrix[frame_i].shape[1]):
+                    # printif(f'Triplet i: {triplet_i}', is_interest)
                     current_state = orf_state_matrix[frame_i][orf_i, triplet_i]
+                    # printif(f'Current state: {current_state}', is_interest)
                     prev_state = orf_state_matrix[frame_i][orf_i, triplet_i - 1]
+                    # printif(f'Prev state: {prev_state}', is_interest)
+                    # printif(f'Alpha: {alpha}', is_interest)
                     if current_state == 0:
                         # print('current state is 0')
                         try:
                             newalpha = alpha + log(1 - P[triplet_i, frame_i])  # What do we do when this is log(0)?
                         except:
+                            printif('exception 1', is_interest)
                             print(f'Got utils.MIN on triplet {triplet_i} | P[{triplet_i}, {frame_i}] = {P[triplet_i, frame_i]} | Exception 1****************')
                             newalpha = utils.MIN
                     elif current_state == 1:
                         try:
                             newalpha = alpha + log(P[triplet_i, frame_i])
                         except:
+                            printif('exception 2', is_interest)
                             print(f'Got utils.MIN on triplet {triplet_i} | P[{triplet_i}, {frame_i}] = {P[triplet_i, frame_i]} | Exception 2')
                             newalpha = utils.MIN
                     elif current_state == 2:
@@ -726,12 +747,14 @@ class State(object):
                             try:
                                 newalpha = alpha + log(1 - Q[triplet_i, frame_i])
                             except:
+                                printif('exception 3', is_interest)
                                 print(f'Got utils.MIN on triplet {triplet_i} | Q[{triplet_i}, {frame_i}] = {Q[triplet_i, frame_i]} | Exception 3***************')
                                 newalpha = utils.MIN
                     elif current_state == 5:
                         try:
                             newalpha = alpha + log(Q[triplet_i, frame_i])
                         except:
+                            printif('exception 4', is_interest)
                             print(f'Got utils.MIN on triplet {triplet_i} | Q[{triplet_i}, {frame_i}] = {Q[triplet_i, frame_i]} | Exception 4')
                             newalpha = utils.MIN
                     elif current_state == 6:
@@ -743,6 +766,12 @@ class State(object):
 
                     alpha = newalpha + data.log_probability[frame_i, triplet_i, current_state]  # Last element is the state we're on?
 
+                if (int(cdstart), int(cdstop)) == (6947755, 6947803) or (int(cdstart), int(cdstop)) == (
+                    6947779, 6947803):
+                    print(f'Final alpha: {alpha}')
+                    print(f'Sum of likelihood: {np.sum(self.likelihood[:, frame_i])}')
+                    print(f'Before exp: {alpha - np.sum(self.likelihood[:, frame_i])}')
+                    print('Orf posterior in decode: {}'.format(np.exp(alpha - np.sum(self.likelihood[:, frame_i]))))
                 orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[:, frame_i]))
         return orf_posteriors, candidate_cds_matrix
 
@@ -2110,6 +2139,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
     i = 0
     for transcript, riboseq_data in zip(transcripts, data):
         print('##### Looking at transcript {}'.format(i))
+        # print('Computed n_triplets: {}'.format(int(len(transcript.sequence) / 3) - 1))
         i += 1
         riboseq_data.compute_log_probability(emission)
         state = State(riboseq_data.n_triplets)

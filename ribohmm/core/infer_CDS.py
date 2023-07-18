@@ -12,6 +12,8 @@ from ribohmm import core, utils
 from ribohmm.core import seq as seq
 from ribohmm.core.ribohmm import infer_coding_sequence, discovery_mode_data_logprob, state_matrix_qa, compare_raw_seq_to_codon_map
 
+from ribohmm.core.ribohmm import Data
+
 import logging
 logging.basicConfig(
     format='[%(asctime)s.%(msecs)03d|%(levelname)s] %(message)s',
@@ -30,14 +32,68 @@ N_FRAMES = 3
 
 def write_inferred_cds_discovery_mode(transcript, frame, rna_sequence, candidate_cds, orf_posterior,
                                       orf_start, orf_stop):
+    """
+    Two records to look at:
+    chromosome start stop transcript_id posterior strand cdstart cdstop protein_seq num_exons exon_sizes exon_starts frame
+    chr11 6947752 6979079 STRG.6583.8 18680 + 6947755 6947803 VRRGCSAAIYETRSRQ 6 207,579,83,133,96,2159, 6947752,6953324,6962801,6964313,6964776,6976920, 0
+    chr11 6947752 6979079 STRG.6583.8 1098 + 6947779 6947803 IYETRSRQ 6 207,579,83,133,96,2159, 6947752,6953324,6962801,6964313,6964776,6976920, 0
+
+    """
+    normal_starting_state_sequence = {
+        '>3 0s': 0,
+        '2 0s': 0,
+        '0': 0,
+        '1': 0,
+        '2': 0,
+        '3': 0,
+        '4': 0,
+        '5': 0,
+        '6': 0,
+        '7': 0,
+        '8': 0,
+        '2 8s': 0,
+        '>3 8s': 0,
+    }
+    greater_10k_starting_state_sequence = {
+        '>3 0s': 0,
+        '2 0s': 0,
+        '0': 0,
+        '1': 0,
+        '2': 0,
+        '3': 0,
+        '4': 0,
+        '5': 0,
+        '6': 0,
+        '7': 0,
+        '8': 0,
+    }
     try:
         # print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
         #       f' Posteriors: {list(frame.posterior)} | {orf_posterior} * {frame.posterior[candidate_cds.frame]}')
         posterior = int(orf_posterior * frame.posterior[candidate_cds.frame] * 10_000)
         # print(f'###### {posterior}')
+
+        # if posterior > 10_000:
+        #     # print(f'###### {posterior}')
+        #
+        #     # print('&&&&&&&&& {}'.format(state_sequence))
+        #     greater_10k_starting_state_sequence[starts_with_state] += 1
+        # else:
+        #     normal_starting_state_sequence[starts_with_state] += 1
     except:
         posterior = 'NaN'
-    tis = orf_start  # This is base position, not a state position
+
+    state_sequence = Data.get_state_sequence(n_triplets=int(len(transcript.sequence) / 3) - 1,
+                                             start=candidate_cds.start, stop=candidate_cds.stop)
+    if state_sequence[0] == 0 and state_sequence[1] == 0 and state_sequence[2] == 0:
+        starts_with_state = '>3 0s'
+    elif state_sequence[0] == 0 and state_sequence[1] == 0:
+        starts_with_state = '2 0s'
+    elif state_sequence[0] == 0:
+        starts_with_state = '0'
+    else:
+        starts_with_state = str(state_sequence[0])
+    tis = orf_start  # This is base position, n151444ot a state position
     tts = orf_stop
 
     protein = utils.translate(rna_sequence[tis:tts])
@@ -48,6 +104,13 @@ def write_inferred_cds_discovery_mode(transcript, frame, rna_sequence, candidate
     else:
         cdstart = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tts]
         cdstop = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tis]
+
+    # if int(cdstart) == 6947755 and int(cdstop) == 6947803:
+    if (int(cdstart), int(cdstop)) == (6947755, 6947803) or (int(cdstart), int(cdstop)) == (6947779, 6947803):
+        print('############# {}'.format(cdstart))
+        print(orf_posterior)
+        print(frame.posterior[candidate_cds.frame])
+
 
     towrite = [transcript.chromosome,
                transcript.start,
@@ -63,7 +126,11 @@ def write_inferred_cds_discovery_mode(transcript, frame, rna_sequence, candidate
                ','.join(map(str, [transcript.start + e[0] for e in transcript.exons])) + ',',
                candidate_cds.frame
     ]
-    return towrite
+
+    # print('==============================')
+    # print(normal_starting_state_sequence)
+    # print(greater_10k_starting_state_sequence)
+    return towrite, ('>10k' if isinstance(posterior, int) and posterior > 10_000 else 'normal', starts_with_state)
 
 
 def write_inferred_cds(transcript, state, frame, rna_sequence):
@@ -129,6 +196,7 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
     logger.info('In {} transcripts, all exons have at least 5 footprints'.format(len(transcripts)))
 
     records_to_write = list()
+    greater_10ks = list()
     discovery_mode_debug_metadata = list()
     if len(transcripts) > 0:
         codon_maps = list()
@@ -213,7 +281,7 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
                 for frame_i in range(N_FRAMES):
                     for orf_i, orf_posterior in enumerate(orf_posterior_matrix[frame_i]):
                         candidate_cds = candidate_cds_matrix[frame_i][orf_i]
-                        record = write_inferred_cds_discovery_mode(
+                        record, greater_10k = write_inferred_cds_discovery_mode(
                             transcript=transcript,
                             frame=frame,
                             rna_sequence=rna_sequence,
@@ -224,7 +292,8 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
                             orf_stop=candidate_cds.stop * 3 + candidate_cds.frame
                         )
                         records_to_write.append(record)
-    return records_to_write, discovery_mode_debug_metadata
+                        greater_10ks.append(greater_10k)
+    return records_to_write, discovery_mode_debug_metadata, greater_10ks
 
 
 
@@ -294,12 +363,47 @@ def infer_CDS(
                 ))
 
     wait(futs)
+    greater_10k_results = {
+        '>10k': {
+            '>3 0s': 0,
+            '2 0s': 0,
+            '0': 0,
+            '1': 0,
+            '2': 0,
+            '3': 0,
+            '4': 0,
+            '5': 0,
+            '6': 0,
+            '7': 0,
+            '8': 0,
+        },
+        'normal': {
+            '>3 0s': 0,
+            '2 0s': 0,
+            '0': 0,
+            '1': 0,
+            '2': 0,
+            '3': 0,
+            '4': 0,
+            '5': 0,
+            '6': 0,
+            '7': 0,
+            '8': 0,
+        }
+    }
     for fut in futs:
-        records_to_write_, debug_metadata_ = fut.result()
+        records_to_write_, debug_metadata_, greater_10k_result = fut.result()
         print(f'Got {len(records_to_write_)} records to write')
         records_to_write.extend(records_to_write_)
         if debug_metadata_:
             debug_metadata[infer_strand].extend(debug_metadata_)
+        print(greater_10k_result)
+        for gt10kr in greater_10k_result:
+            greater_10k_results[gt10kr[0]][gt10kr[1]] += 1
+
+    print('=========================')
+    print(greater_10k_results)
+    print('=========================')
 
     # Output records
     for record in records_to_write:
