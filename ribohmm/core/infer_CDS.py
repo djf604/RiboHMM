@@ -83,7 +83,7 @@ def write_inferred_cds(transcript, state, frame, rna_sequence):
                        f':{transcript.strand}:{transcript.id} | tis: {tis} tts: {tts}')
         return None
 
-    posterior = int(posteriors[index]*10000) 
+    posterior = int(posteriors[index]*10000)
     protein = utils.translate(rna_sequence[tis:tts])
     # identify TIS and TTS in genomic coordinates
     if transcript.strand=='+':
