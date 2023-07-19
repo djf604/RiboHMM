@@ -421,8 +421,9 @@ class Data:
 
         for candidate_cds in self.get_candidate_cds_simple():
             state_seq = self.get_state_sequence(n_triplets, candidate_cds.start, candidate_cds.stop)
-            orf_state_matrix_[candidate_cds.frame].append(state_seq)
-            candidate_cds_[candidate_cds.frame].append(candidate_cds)
+            if state_seq[0] == 0:
+                orf_state_matrix_[candidate_cds.frame].append(state_seq)
+                candidate_cds_[candidate_cds.frame].append(candidate_cds)
 
         return [np.array(m) for m in orf_state_matrix_], candidate_cds_
 
