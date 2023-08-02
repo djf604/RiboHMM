@@ -667,7 +667,7 @@ class State(object):
             print('Warning: Inf/Nan in start cross moment')
             pdb.set_trace()
 
-    def discovery_decode(self, data, transition, transcript):
+    def discovery_decode(self, data, transition, transcript, use_minimal_orf=False):
         P = logistic(-1 * (transition['seqparam']['kozak'] * data.codon_map['kozak']
                            + transition['seqparam']['start'][data.codon_map['start']]))
         Q = logistic(-1 * transition['seqparam']['stop'][data.codon_map['stop']])
@@ -693,16 +693,31 @@ class State(object):
                     cdstart = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tts]
                     cdstop = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tis]
 
-                # print(f'Transcript id: {transcript.id}, Strand: {transcript.strand}, cdsstart: {cdstart}, '
-                #       f'cdstop: {cdstop}')
-                # print(orf_state_matrix[frame_i][orf_i])
-                # print(orf_state_matrix[frame_i][orf_i].shape)
-                # print(list(orf_state_matrix[frame_i][orf_i]))
+                # TODO Maybe surround this in a try-except
+                try:
+                    start_minimal_orf = np.where(orf_state_matrix[frame_i][orf_i] == States.ST_5PRIME_UTS_PLUS)[0][0] - 1
+                    end_minimal_orf = np.where(orf_state_matrix[frame_i][orf_i] == States.ST_3PRIME_UTS_MINUS)[0][0] + 1
+                except IndexError:
+                    print('Minimal ORF could not be found for {}'.format(candidate_cds))
+                    continue
 
-                alpha = utils.nplog(1) + data.log_probability[frame_i, 0, 0]
+                # TODO Need to determine where the first good 0 state is
+                # Set initial alpha
+                if not use_minimal_orf or orf_state_matrix[frame_i][orf_i, 1] == States.ST_5PRIME_UTS_PLUS:
+                    alpha = utils.nplog(1) + data.log_probability[frame_i, 0, 0]
+                else:
+                    alpha = 0
+
+                # Go through the rest of the states
                 for triplet_i in range(1, orf_state_matrix[frame_i].shape[1]):
                     current_state = orf_state_matrix[frame_i][orf_i, triplet_i]
                     prev_state = orf_state_matrix[frame_i][orf_i, triplet_i - 1]
+                    # next_state = orf_state_matrix[frame_i][orf_i, triplet_i + 1]  # TODO This may be out of bounds
+
+                    if use_minimal_orf:
+                        if triplet_i < start_minimal_orf or triplet_i > end_minimal_orf:
+                            # print('Outside minimal ORF')
+                            continue
                     if current_state == 0:
                         # print('current state is 0')
                         try:
@@ -744,7 +759,11 @@ class State(object):
 
                     alpha = newalpha + data.log_probability[frame_i, triplet_i, current_state]  # Last element is the state we're on?
 
-                orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[:, frame_i]))
+                if use_minimal_orf:
+                    orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[start_minimal_orf:end_minimal_orf + 1, frame_i]))
+                else:
+                    orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[:, frame_i]))
+
         return orf_posteriors, candidate_cds_matrix
 
     def decode(self, data, transition):
