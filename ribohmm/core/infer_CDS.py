@@ -192,20 +192,23 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
                         'start': t.start,
                         'stop': t.stop,
                         'strand': t.strand,
-                        'length': t.stop - t.start + 1
+                        'length': t.stop - t.start + 1,
+                        'id': t.id
                     },
+                    'sequence': seq,
                     'transcript_string': str(t.raw_attrs),
                     'exons': {
                         'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
-                        'relative': t.exons
+                        'relative': t.exons,
+                        'mask': list([int(m) for m in t.mask])
                     },
-                    'riboseq_pileup_counts': {
-                        read_length: list(f[:, read_length_i])
-                        for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
-                    },
+                    # 'riboseq_pileup_counts': {
+                    #     read_length: list(f[:, read_length_i])
+                    #     for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
+                    # },
                     'results': candidate_cds_likelihoods
                 }
-                for t, candidate_cds_likelihoods, f in zip(transcripts, pos_data_log_probs, footprint_counts)
+                for t, candidate_cds_likelihoods, f, seq in zip(transcripts, pos_data_log_probs, footprint_counts, rna_sequences)
             ]
 
             for transcript, frame, rna_sequence, orf_posterior_matrix, candidate_cds_matrix in zip(
@@ -298,8 +301,11 @@ def infer_CDS(
         records_to_write_, debug_metadata_ = fut.result()
         print(f'Got {len(records_to_write_)} records to write')
         records_to_write.extend(records_to_write_)
-        if debug_metadata_:
-            debug_metadata[infer_strand].extend(debug_metadata_)
+        for d in debug_metadata_:
+            debug_metadata[d['transcript_info']['strand']].append(d)
+        # if debug_metadata_:
+        #     pos_debug_metadata = [d for d in debug_metadata_ if d['transcript_info']]
+        #     debug_metadata[infer_strand].extend(debug_metadata_)
 
     # Output records
     for record in records_to_write:
@@ -311,6 +317,9 @@ def infer_CDS(
     # Output debug output bundle
     if debug_metadata and dev_output_debug_data:
         with open(os.path.join(output_directory, dev_output_debug_data), 'w') as out:
+            print('********************')
+            print('number of pos: {}'.format(len(debug_metadata['+'])))
+            print('number of neg: {}'.format(len(debug_metadata['-'])))
             json.dump(serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']}), out)
 
     logger.info('Closing handles')

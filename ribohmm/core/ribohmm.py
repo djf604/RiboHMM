@@ -15,6 +15,9 @@ logger = logging.getLogger('viterbi_log')
 
 solvers.options['maxiters'] = 300
 solvers.options['show_progress'] = False
+
+# This represents the frame and triplet position of the ORF
+# The triplet position is within the transcript, where the index starts at 0
 CandidateCDS = namedtuple('CandidateCDS', 'frame start stop')
 
 def logistic(x):
@@ -305,6 +308,75 @@ class Data:
             print('Warning: Inf/Nan in extra log likelihood')
             pdb.set_trace()
 
+    def compute_minimal_ORF(self, candidate_cds):
+        """
+        Args:
+            candidate_cds: A CandidateCDS namedtuple
+
+        Returns:
+
+        """
+        n_triplets = self.codon_map['start'].shape[0]
+        state_seq = np.array(self.get_state_sequence(n_triplets, candidate_cds.start, candidate_cds.stop))
+        start_minimal_orf = int(np.where(state_seq == States.ST_5PRIME_UTS_PLUS)[0][0] - 1)
+        end_minimal_orf = int(np.where(state_seq == States.ST_3PRIME_UTS_MINUS)[0][0] + 1)
+        return start_minimal_orf, end_minimal_orf
+
+    def get_minimal_ORF_overlapping_reads(self, candidate_cds):
+        """
+        Calculates the total reads that overlap the minimal ORF, for all footprint lengths
+        Args:
+            candidate_cds:
+
+        Returns:
+
+        """
+        try:
+            minimal_ORF_start, minimal_ORF_stop = self.compute_minimal_ORF(candidate_cds)
+            return int(self.total_pileup[candidate_cds.frame, minimal_ORF_start:minimal_ORF_stop + 1].sum())
+        except:
+            return None
+
+
+    def compute_minimal_ORF_log_probability(self):
+        N_FRAMES = 3
+        orf_state_matrix, candidate_cds_matrix = self.orf_state_matrix()
+        print('#### Size of candidate cds: {}'.format(sum([len(c) for c in candidate_cds_matrix])))
+
+        # orf_periodicity_likelihoods = [list(), list(), list()]
+        orf_periodicity_likelihoods = dict()
+        # orf_occupancy_likelihoods = [list(), list(), list()]
+        orf_occupancy_likelihoods = dict()
+
+        for frame_i in range(N_FRAMES):
+            n_orfs = orf_state_matrix[frame_i].shape[0]
+            for orf_i in range(n_orfs):
+                candidate_cds = candidate_cds_matrix[frame_i][orf_i]
+                try:
+                    start_minimal_orf = np.where(orf_state_matrix[frame_i][orf_i] == States.ST_5PRIME_UTS_PLUS)[0][0] - 1
+                    end_minimal_orf = np.where(orf_state_matrix[frame_i][orf_i] == States.ST_3PRIME_UTS_MINUS)[0][0] + 1
+                except IndexError:
+                    print('Minimal ORF could not be found for {}'.format(candidate_cds))
+                    continue
+
+                minimal_orf_state_sequence = orf_state_matrix[frame_i][orf_i][start_minimal_orf:end_minimal_orf + 1]
+                # orf_periodicity = self.periodicity_model[frame_i, start_minimal_orf:end_minimal_orf + 1,
+                #                                          minimal_orf_state_sequence]
+                orf_periodicity = np.choose(minimal_orf_state_sequence, self.periodicity_model[frame_i, start_minimal_orf:end_minimal_orf + 1].T)
+                # orf_occupancy = self.occupancy_model[frame_i, start_minimal_orf:end_minimal_orf + 1,
+                #                                      minimal_orf_state_sequence]
+                orf_occupancy = np.choose(minimal_orf_state_sequence, self.occupancy_model[frame_i, start_minimal_orf:end_minimal_orf + 1].T)
+                # print('^^^^^^^^^ shape: {}'.format(orf_periodicity.shape))
+                import base64
+                # base64.b64encode(nparray)
+                # print(orf_occupancy)
+                # orf_periodicity_likelihoods[frame_i].append(np.sum(orf_periodicity))
+                orf_periodicity_likelihoods[candidate_cds] = float(np.sum(orf_periodicity))
+                # orf_occupancy_likelihoods[frame_i].append(np.sum(orf_occupancy))
+                orf_occupancy_likelihoods[candidate_cds] = float(np.sum(orf_occupancy))
+
+        return orf_periodicity_likelihoods, orf_occupancy_likelihoods
+
     def compute_observed_pileup_deviation(self, emission, return_sorted=True):
         """
         For each ORF, for each read length, for the first two base positions in each triplet, computes a
@@ -314,9 +386,16 @@ class Data:
         :return:
         """
         orfs_with_errors = list()
-        for candidate_orf in self.get_candidate_cds_simple():
+        # for candidate_orf in self.get_candidate_cds_simple():
+        _, all_candidate_cds = self.orf_state_matrix()
+        all_candidate_cds = all_candidate_cds[0] + all_candidate_cds[1] + all_candidate_cds[2]
+        for candidate_orf in all_candidate_cds:
             footprint_errors = list()
+            footprint_errors_minimum_orf = list()
             by_triplet_error = dict()
+            by_triplet_error_minimum_orf = dict()
+            minimum_orf_start_triplet, minimum_orf_stop_triplet = self.compute_minimal_ORF(candidate_orf)
+            minimum_orf_size = minimum_orf_stop_triplet - minimum_orf_start_triplet + 1
             for footprint_length_i in range(self.n_footprint_lengths):
                 expected = emission['logperiodicity'][footprint_length_i]
                 observed_frame_i = candidate_orf.frame
@@ -324,6 +403,7 @@ class Data:
                 observed_stop = candidate_orf.stop
 
                 orf_square_error = np.zeros(shape=(self.n_triplets, 3))
+                minimum_orf_square_error = np.zeros(shape=(self.n_triplets, 3))
                 for triplet_i in range(self.n_triplets):
                     triplet_state = get_triplet_state(triplet_i, start_pos=observed_start, stop_pos=observed_stop)
                     state_expected = np.exp(expected[triplet_state])
@@ -338,11 +418,20 @@ class Data:
                     square_error = (triplet_proportions - state_expected) ** 2
                     orf_square_error[triplet_i] = square_error
 
+                    if minimum_orf_start_triplet <= triplet_i <= minimum_orf_stop_triplet:
+                        minimum_orf_square_error[triplet_i] = square_error
+                    else:
+                        minimum_orf_square_error[triplet_i] = 0
+
                 by_triplet_error[footprint_length_i] = np.sum(orf_square_error, axis=1)
+                by_triplet_error_minimum_orf[footprint_length_i] = np.sum(minimum_orf_square_error, axis=1)
                 orf_rmse = np.sqrt(np.sum(orf_square_error) / (self.n_triplets * 2))
+                orf_rmse_minimum_orf = np.sqrt(np.sum(minimum_orf_square_error) / (minimum_orf_size * 2))
                 footprint_errors.append(orf_rmse)
+                footprint_errors_minimum_orf.append(orf_rmse_minimum_orf)
             orf_error = np.mean(footprint_errors)
-            orfs_with_errors.append((candidate_orf, orf_error, by_triplet_error))
+            orf_error_minimum_orf = np.mean(footprint_errors_minimum_orf)
+            orfs_with_errors.append((candidate_orf, orf_error, by_triplet_error, orf_error_minimum_orf, by_triplet_error_minimum_orf))
 
         if not return_sorted:
             return orfs_with_errors
@@ -414,6 +503,9 @@ class Data:
     def orf_state_matrix(self):
         """
         Returns () matrix of orf states,
+
+        The ORF state matrix is size 3, one element for each frame. Each of those elements is a list, with each
+        state sequence for that frame.
         """
         n_triplets = self.codon_map['start'].shape[0]
         orf_state_matrix_ = [list(), list(), list()]
@@ -667,7 +759,7 @@ class State(object):
             print('Warning: Inf/Nan in start cross moment')
             pdb.set_trace()
 
-    def discovery_decode(self, data, transition, transcript):
+    def discovery_decode(self, data, transition, transcript, use_minimal_orf=False):
         P = logistic(-1 * (transition['seqparam']['kozak'] * data.codon_map['kozak']
                            + transition['seqparam']['start'][data.codon_map['start']]))
         Q = logistic(-1 * transition['seqparam']['stop'][data.codon_map['stop']])
@@ -693,16 +785,31 @@ class State(object):
                     cdstart = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tts]
                     cdstop = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tis]
 
-                # print(f'Transcript id: {transcript.id}, Strand: {transcript.strand}, cdsstart: {cdstart}, '
-                #       f'cdstop: {cdstop}')
-                # print(orf_state_matrix[frame_i][orf_i])
-                # print(orf_state_matrix[frame_i][orf_i].shape)
-                # print(list(orf_state_matrix[frame_i][orf_i]))
+                # TODO Maybe surround this in a try-except
+                try:
+                    start_minimal_orf = np.where(orf_state_matrix[frame_i][orf_i] == States.ST_5PRIME_UTS_PLUS)[0][0] - 1
+                    end_minimal_orf = np.where(orf_state_matrix[frame_i][orf_i] == States.ST_3PRIME_UTS_MINUS)[0][0] + 1
+                except IndexError:
+                    print('Minimal ORF could not be found for {}'.format(candidate_cds))
+                    continue
 
-                alpha = utils.nplog(1) + data.log_probability[frame_i, 0, 0]
+                # TODO Need to determine where the first good 0 state is
+                # Set initial alpha
+                if not use_minimal_orf or orf_state_matrix[frame_i][orf_i, 1] == States.ST_5PRIME_UTS_PLUS:
+                    alpha = utils.nplog(1) + data.log_probability[frame_i, 0, 0]
+                else:
+                    alpha = 0
+
+                # Go through the rest of the states
                 for triplet_i in range(1, orf_state_matrix[frame_i].shape[1]):
                     current_state = orf_state_matrix[frame_i][orf_i, triplet_i]
                     prev_state = orf_state_matrix[frame_i][orf_i, triplet_i - 1]
+                    # next_state = orf_state_matrix[frame_i][orf_i, triplet_i + 1]  # TODO This may be out of bounds
+
+                    if use_minimal_orf:
+                        if triplet_i < start_minimal_orf or triplet_i > end_minimal_orf:
+                            # print('Outside minimal ORF')
+                            continue
                     if current_state == 0:
                         # print('current state is 0')
                         try:
@@ -744,7 +851,11 @@ class State(object):
 
                     alpha = newalpha + data.log_probability[frame_i, triplet_i, current_state]  # Last element is the state we're on?
 
-                orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[:, frame_i]))
+                if use_minimal_orf:
+                    orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[start_minimal_orf:end_minimal_orf + 1, frame_i]))
+                else:
+                    orf_posteriors[frame_i][orf_i] = np.exp(alpha - np.sum(self.likelihood[:, frame_i]))
+
         return orf_posteriors, candidate_cds_matrix
 
     def decode(self, data, transition):
@@ -2092,6 +2203,120 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         }
     }
 
+
+
+    """
+    Below code is only for debugging the start codon position using chr 20, 21, and 22
+    """
+    # debug_output = dict()
+    #
+    # def get_candidate_cds_simple_(codon_map, shifted_forward=True):
+    #     local_start_codon_map = codon_map['start'].copy()
+    #     local_stop_codon_map = codon_map['stop'].copy()
+    #
+    #     if shifted_forward:
+    #         local_start_codon_map = np.roll(local_start_codon_map, shift=1, axis=0)
+    #         local_start_codon_map[0] = [0, 0, 0]  # np.roll wraps around, so set the first codon to 0s
+    #         local_stop_codon_map = np.roll(local_stop_codon_map, shift=2, axis=0)
+    #         local_stop_codon_map[0] = [0, 0, 0]
+    #         local_stop_codon_map[1] = [0, 0, 0]
+    #
+    #     N_FRAMES = 3
+    #     n_triplets = local_start_codon_map.shape[0]
+    #     candidate_cds = list()
+    #
+    #     for pos_i in range(n_triplets):
+    #         for frame_i in range(N_FRAMES):
+    #             if local_start_codon_map[pos_i, frame_i] > 0:
+    #                 for stop_i in range(pos_i, n_triplets):
+    #                     if local_stop_codon_map[stop_i, frame_i] > 0:
+    #                         candidate_cds.append(CandidateCDS(
+    #                             frame=frame_i,
+    #                             start=pos_i,
+    #                             stop=stop_i
+    #                         ))
+    #                         break
+    #
+    #     return candidate_cds
+    #
+    #
+    # # Just for debugging purposes
+    # start_codon_annotated = dict()
+    # stop_codon_annotated = dict()
+    # try:
+    #     # with open('/work/05546/siddisis/shareDirs/tORF/riboHMM/example.339.chr11.CCDS.gencode.v19.startCodon.annotation.txt') as annot:
+    #     with open('/home1/08246/dfitzger/riboHMM_chr11_example_YRI_Data/annotated_start_codons.gtf') as annot:
+    #         for line in annot:
+    #             # record = line.strip().split('\t')
+    #             transcript_id = line.strip().split("\t")[-1].split(";")[1].strip().split()[1].replace('"', "")
+    #             strand = line.strip().split('\t')[4]
+    #             start_pos = int(line.strip().split('\t')[2]) - 1
+    #             # if strand.strip() == '+':
+    #             #     start_pos -= 1  # To convert it to 0-based half open
+    #             stop_pos = int(line.strip().split('\t')[3])
+    #             start_codon_annotated[transcript_id] = start_pos
+    #             stop_codon_annotated[transcript_id] = stop_pos
+    # except:
+    #     pass
+    #
+    #
+    # for transcript, codon_map in zip(transcripts, codon_maps):
+    #     transcript_id = transcript.raw_attrs['reference_id']
+    #     debug_output[transcript_id] = list()
+    #     for candidate_cds in get_candidate_cds_simple_(codon_map):
+    #         if transcript.strand == '-':
+    #             exonic_positions = np.arange(transcript.start, transcript.stop)[::-1][transcript.mask]
+    #             # exonic_positions = np.arange(transcript.start, transcript.stop)[transcript.mask][::-1]
+    #         else:
+    #             exonic_positions = np.arange(transcript.start, transcript.stop)[transcript.mask]
+    #         # Remove initial bases to set the frame
+    #         for _ in range(candidate_cds.frame):
+    #             exonic_positions = np.delete(exonic_positions, 0)
+    #         # If needed, add placeholder values to make sequence divisible by 3
+    #         if len(exonic_positions) % 3 in {1, 2}:
+    #             exonic_positions = np.append(exonic_positions, [-2] * (3 - (len(exonic_positions) % 3)))
+    #
+    #         # Chunk exonic positions into triplets
+    #         # triplet_genomic_positions = np.array(np.split(exonic_positions, 3))
+    #         triplet_genomic_positions = exonic_positions.reshape(-1, 3)
+    #         # TODO This is splitting into 3 sets of even size, I want however many chunks all of size 3
+    #
+    #         # Get genomic position of start and stop codons
+    #         start_genomic_pos = list(triplet_genomic_positions[candidate_cds.start])
+    #         stop_genomic_pos = list(triplet_genomic_positions[candidate_cds.stop])
+    #
+    #         orf_output = {
+    #             'definition': candidate_cds,
+    #             'exonic_positions': (
+    #                 list(np.arange(transcript.start, transcript.stop)[transcript.mask])
+    #                 if transcript.strand == '+'
+    #                 else list(np.arange(transcript.start, transcript.stop)[::-1][transcript.mask])
+    #             ),
+    #             'start_codon_genomic_position': start_genomic_pos,
+    #             'stop_codon_genomic_position': stop_genomic_pos,
+    #             'annotated_start': start_codon_annotated.get(transcript_id),
+    #             'annotated_stop': stop_codon_annotated.get(transcript_id),
+    #             'strand': transcript.strand,
+    #             'start_codon_differences': [
+    #                 start_genomic_pos[0] - start_codon_annotated.get(transcript_id, -9999999),
+    #                 start_genomic_pos[1] - start_codon_annotated.get(transcript_id, -9999999),
+    #                 start_genomic_pos[2] - start_codon_annotated.get(transcript_id, -9999999),
+    #             ],
+    #         }
+    #         debug_output[transcript_id].append(orf_output)
+    #
+    #
+    # with open('/work/08246/dfitzger/ls6/run001/other_chr_test.json', 'w') as out:
+    #     import json
+    #     json.dump(debug_output, out)
+    #
+    #
+    # print('Succeeded')
+    # return None
+    """
+    End debug code with chr 20, 21, 22
+    """
+
     data = [
         Data(
             riboseq_footprint_pileup,
@@ -2109,8 +2334,29 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
     frames = list()
     # For each transcript
     i = 0
+
+    # Just for debugging purposes
+    start_codon_annotated = dict()
+    stop_codon_annotated = dict()
+    try:
+        # with open('/work/05546/siddisis/shareDirs/tORF/riboHMM/example.339.chr11.CCDS.gencode.v19.startCodon.annotation.txt') as annot:
+        with open('/home1/08246/dfitzger/riboHMM_chr11_example_YRI_Data/annotated_start_codons.gtf') as annot:
+            for line in annot:
+                # record = line.strip().split('\t')
+                transcript_id = line.strip().split("\t")[-1].split(";")[1].strip().split()[1].replace('"', "")
+                strand = line.strip().split('\t')[4]
+                start_pos = int(line.strip().split('\t')[2]) - 1
+                # if strand.strip() == '+':
+                #     start_pos -= 1  # To convert it to 0-based half open
+                stop_pos = int(line.strip().split('\t')[3])
+                start_codon_annotated[transcript_id] = start_pos
+                stop_codon_annotated[transcript_id] = stop_pos
+    except:
+        pass
+
     for transcript, riboseq_data in zip(transcripts, data):
         print('##### Looking at transcript {}'.format(i))
+        transcript_id = transcript.raw_attrs['reference_id']
         i += 1
         riboseq_data.compute_log_probability(emission)
         state = State(riboseq_data.n_triplets)
@@ -2118,34 +2364,109 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         emission_errors = riboseq_data.compute_observed_pileup_deviation(emission, return_sorted=False)
         ORF_EMISSION_ERROR_MEAN = 1
         ORF_EMISSION_ERROR_BY_TRIPLET_SSE = 2
+        ORF_EMISSION_ERROR_MEAN_MINIMUM_ORF = 3
+        ORF_EMISSION_ERROR_BY_TRIPLET_SSE_MINIMUM_ORF = 4
+
+        """
+        Write up for how the start genomic position is calculated
+        1. Scan GTF to add transcripts and exons
+            - For both exons and transcripts, [start = GTF_start -1] and [stop = GTF_stop]
+            - A transcript's exons are stored as a list of tuples: 
+              [(exon_0_start, exon_0_stop), ..., (exon_n_start, exon_n_stop)]
+        2. All positions within the transcript that are also in an exon are calculated
+            - Iterate through each exon, and add all exonic positions to a list
+            - Add the transcript.start value to each exonic position
+        3. The exonic positions are divided up among the triplets
+            - If all three of the positions of the triplet are defined, then it's stored as [e[0], -1, -1]
+                - This is done to condense the information into a shorter string
+            - If there are not enough positions left for a triplet, the difference is made up with 0s
+        4. The start codon genomic position is calculated
+            - The triplet index of the candidate ORF is used to grab the genomic positions from step 3
+            - Each position in the triplet is calculated as:
+                - first_position + (frame_i)
+                - first_position + (frame_i + 1)
+                - first_position + (frame_i + 2)
+        
+        - Why are we subtracting one from the GTF start position?
+        - Why are we adding the frame_i to the final start codon genomic position?
+        
+        
+        
+        
+        Transcript 1:
+        Seq: 123456789ABCDEFGHI
+            - (1, 5) [12345]
+            - (10, 13) []
+            - (15, 18)
+            
+        Add exons to a transcript object called "transcript 1"
+         - [(0, 5), (9, 13), (14, 18)]
+        Step 2:
+         - [0, 1, 2, 3, 4, 9, 10, 11, 12, 14, 15, 16, 17]
+         1st triplet: [
+                        [0, 1, 2]
+         2nd triplet:   [3, 4, 9]
+         3rd triplet:   [10, 11, 12]
+         4th triplet:   [14, 15, 16]
+         5th triplet:   [17, 0, 0]
+                    ]
+         [12487374893, 12487374894, 12487374895]
+         [12487374893, -1, -1]
+         
+         
+         
+         seq
+        """
 
         # Get absolute positions of triplets within the chromosome
-        triplet_genomic_positions = list()
-        exonic_positions = list()
-        for exon in transcript.exons:
-            exonic_positions.extend(list(range(exon[0], exon[1] + 1)))
-        exonic_positions = np.array(exonic_positions) + transcript.start
+        # triplet_genomic_positions = list()
+        # exonic_positions = list()
+        # for exon in transcript.exons:
+        #     exonic_positions.extend(list(range(exon[0], exon[1] + 1)))
+        # exonic_positions = np.array(exonic_positions) + transcript.start
 
-        for triplet_i in range(riboseq_data.n_triplets):
-            e = exonic_positions[triplet_i * 3:(triplet_i + 1) * 3]
-            # print(f'Exonic positions: {e}, len: {len(exonic_positions)}')
-            # print(f'First part of slice: {triplet_i * 3}')
-            # print(f'Second part of slice: {(triplet_i + 1) * 3}')
-            try:
-                if e[2] - e[0] == 2:
-                    e = [e[0], -1, -1]
-            except Exception:
-                e = list(e)
-                print('In exception')
-                while len(e) < 3:
-                    e.append(0)
-                print(e)
-            # print(f'Appending e: {list(e)}')
-            triplet_genomic_positions.append(list(e))
+        # for triplet_i in range(riboseq_data.n_triplets):
+        #     e = exonic_positions[triplet_i * 3:(triplet_i + 1) * 3]
+        #     # print(f'Exonic positions: {e}, len: {len(exonic_positions)}')
+        #     # print(f'First part of slice: {triplet_i * 3}')
+        #     # print(f'Second part of slice: {(triplet_i + 1) * 3}')
+        #     try:
+        #         # If this is a contiguous triplet, add in compression
+        #         if e[2] - e[0] == 2:
+        #             e = [e[0], -1, -1]
+        #     except Exception:
+        #         e = list(e)
+        #         print('In exception')
+        #         while len(e) < 3:
+        #             e.append(0)
+        #         print(e)
+        #     # print(f'Appending e: {list(e)}')
+        #     triplet_genomic_positions.append(list(e))
+
+        orf_periodicity_likelihoods, orf_occupancy_likelihoods = riboseq_data.compute_minimal_ORF_log_probability()
 
         candidate_cds_likelihoods = list()
-        all_candidate_cds = riboseq_data.get_candidate_cds_simple()
+        # all_candidate_cds = riboseq_data.get_candidate_cds_simple()
+        _, all_candidate_cds = riboseq_data.orf_state_matrix()
+        all_candidate_cds = all_candidate_cds[0] + all_candidate_cds[1] + all_candidate_cds[2]
+
+        print('^^^^^^^^^^^^^^^')
+        print('orf periodicity size: {}'.format(len(orf_periodicity_likelihoods)))
+        print('candidate cds size: {}'.format(len(all_candidate_cds)))
+
+
         # For each candidate CDS in this transcript
+        # print('### Size of candidate cds: {}'.format(len(all_candidate_cds)))
+        if len(all_candidate_cds) == 0:
+            print('@@@@@@@@@@@@@@@ There is a 0')
+            print(transcript.chromosome)
+            print(transcript.start)
+            print(transcript.stop)
+            print('Size of raw candidate CDS')
+            print(len(riboseq_data.get_candidate_cds_simple()))
+            print('Codon map')
+            print(riboseq_data.codon_map)
+            print('@@@@@@@@@@@@@@@@@@@@@')
         for candidate_cds, orf_emission_error in zip(all_candidate_cds, emission_errors):
             # print('Looking at candidate cds: {}'.format(candidate_cds))
             # if candidate_cds not in {
@@ -2162,22 +2483,39 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             triplet_state_likelihood_values = list()
             triplet_states = list()
 
+            if transcript.strand == '-':
+                exonic_positions = np.arange(transcript.start, transcript.stop)[::-1][transcript.mask]
+                # exonic_positions = np.arange(transcript.start, transcript.stop)[transcript.mask][::-1]
+            else:
+                exonic_positions = np.arange(transcript.start, transcript.stop)[transcript.mask]
+            # Remove initial bases to set the frame
+            for _ in range(candidate_cds.frame):
+                exonic_positions = np.delete(exonic_positions, 0)
+            # If needed, add placeholder values to make sequence divisible by 3
+            if len(exonic_positions) % 3 in {1, 2}:
+                exonic_positions = np.append(exonic_positions, [-2] * (3 - (len(exonic_positions) % 3)))
+
+            # Chunk exonic positions into triplets
+            # triplet_genomic_positions = np.array(np.split(exonic_positions, 3))
+            triplet_genomic_positions = exonic_positions.reshape(-1, 3)
+            # TODO This is splitting into 3 sets of even size, I want however many chunks all of size 3
+
             # Get genomic position of start and stop codons
-            start_genomic_pos = triplet_genomic_positions[candidate_cds.start]
-            stop_genomic_pos = triplet_genomic_positions[candidate_cds.stop]
-            frame_i = candidate_cds.frame
-            if sum(start_genomic_pos[-2:]) == -2:
-                start_genomic_pos = [
-                    start_genomic_pos[0] + frame_i,
-                    start_genomic_pos[0] + frame_i + 1,
-                    start_genomic_pos[0] + frame_i + 2
-                ]
-            if sum(stop_genomic_pos[-2:]) == -2:
-                stop_genomic_pos = [
-                    stop_genomic_pos[0] + frame_i,
-                    stop_genomic_pos[0] + frame_i + 1,
-                    stop_genomic_pos[0] + frame_i + 2
-                ]
+            start_genomic_pos = list(triplet_genomic_positions[candidate_cds.start])
+            stop_genomic_pos = list(triplet_genomic_positions[candidate_cds.stop])
+            # frame_i = candidate_cds.frame
+            # if sum(start_genomic_pos[-2:]) == -2:
+            #     start_genomic_pos = [
+            #         start_genomic_pos[0] + frame_i,
+            #         start_genomic_pos[0] + frame_i + 1,
+            #         start_genomic_pos[0] + frame_i + 2
+            #     ]
+            # if sum(stop_genomic_pos[-2:]) == -2:
+            #     stop_genomic_pos = [
+            #         stop_genomic_pos[0] + frame_i,
+            #         stop_genomic_pos[0] + frame_i + 1,
+            #         stop_genomic_pos[0] + frame_i + 2
+            #     ]
 
             # Get the data log probability for each position in this transcript, with the states defined by
             # the candidate CDS
@@ -2188,37 +2526,77 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                 triplet_occupancy_likelihoods.append(riboseq_data.occupancy_model[candidate_cds.frame, triplet_i, triplet_state])
                 triplet_alpha_values.append(state.alpha[candidate_cds.frame, triplet_i, triplet_state])
                 triplet_state_likelihood_values.append(state.likelihood[triplet_i, candidate_cds.frame])
-                # triplet_states.append(get_triplet_string(triplet_state))
+                triplet_states.append(get_triplet_string(triplet_state))
             # Once each position probability is gathered, add them to a list for this transcript
+
+            # print('!!!!!!!!! Running compute_minimal_ORF_log_probability()')
+            # orf_periodicity_likelihoods, orf_occupancy_likelihoods = riboseq_data.compute_minimal_ORF_log_probability()
+            # with open('minimum_orf002.json', 'w') as out:
+            #     import json
+            #     json.dump(orf_periodicity_likelihoods, out)
+
+            try:
+                minimum_ORF_start, minimum_ORF_end = riboseq_data.compute_minimal_ORF(candidate_cds)
+                minimum_ORF_length = minimum_ORF_end - minimum_ORF_start + 1
+            except:
+                minimum_ORF_length = None
 
             candidate_cds_results = {
                 'definition': candidate_cds,
                 'triplet_states': triplet_states,
                 'start_codon_genomic_position': start_genomic_pos,
                 'stop_codon_genomic_position': stop_genomic_pos,
+                'annotated_start': start_codon_annotated.get(transcript_id),
+                'annotated_stop': stop_codon_annotated.get(transcript_id),
+                'strand': transcript.strand,
+                'exonic_positions': (
+                    list(np.arange(transcript.start, transcript.stop)[transcript.mask])
+                    if transcript.strand == '+'
+                    else list(np.arange(transcript.start, transcript.stop)[::-1][transcript.mask])
+                ),
+                'start_codon_differences': [
+                    start_genomic_pos[0] - start_codon_annotated.get(transcript_id, -9999999),
+                    start_genomic_pos[1] - start_codon_annotated.get(transcript_id, -9999999),
+                    start_genomic_pos[2] - start_codon_annotated.get(transcript_id, -9999999),
+                ],
+                'transcript_id': transcript_id,
+                'transcript_id2': transcript.id,
+                'first_ten_in_dict': list(start_codon_annotated.keys())[:10],
                 'data_loglikelihood': {
-                    'by_pos': triplet_likelihoods,
+                    # 'by_pos': triplet_likelihoods,
                     'sum': np.sum(triplet_likelihoods)
                 },
+
+                'only_ORF_data_loglikelihood': {
+                    'periodicity': orf_periodicity_likelihoods.get(candidate_cds),
+                    'occupancy': orf_occupancy_likelihoods.get(candidate_cds)
+                },
+                'only_ORF_length': minimum_ORF_length,
+                'only_ORF_riboseq_counts': riboseq_data.get_minimal_ORF_overlapping_reads(candidate_cds),
+
                 'data_loglikelihood_periodicity': {
-                    'by_pos': triplet_periodicity_likelihoods,
+                    # 'by_pos': triplet_periodicity_likelihoods,
                     'sum': np.sum(triplet_periodicity_likelihoods)
                 },
                 'data_loglikelihood_occupancy': {
-                    'by_pos': triplet_occupancy_likelihoods,
+                    # 'by_pos': triplet_occupancy_likelihoods,
                     'sum': np.sum(triplet_occupancy_likelihoods)
                 },
-                'state_alpha': {
-                    'by_pos': triplet_alpha_values,
-                    'sum': np.sum(triplet_alpha_values)
-                },
-                'state_likelihood': {
-                    'by_pos': triplet_state_likelihood_values,
-                    'sum': np.sum(triplet_state_likelihood_values)
-                },
+                # 'state_alpha': {
+                #     'by_pos': triplet_alpha_values,
+                #     'sum': np.sum(triplet_alpha_values)
+                # },
+                # 'state_likelihood': {
+                #     'by_pos': triplet_state_likelihood_values,
+                #     'sum': np.sum(triplet_state_likelihood_values)
+                # },
+
+                # For debug log
                 'orf_emission_error': {
                     'mean_rmse': orf_emission_error[ORF_EMISSION_ERROR_MEAN],
-                    'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE],
+                    # 'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE],
+                    'mean_rmse_only_ORF': orf_emission_error[ORF_EMISSION_ERROR_MEAN_MINIMUM_ORF],
+                    # 'by_triplet_sse_only_ORF': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_MINIMUM_ORF]
                     # 'by_triplet_sse': by_triplet_sse
                 }
             }
@@ -2239,15 +2617,16 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         state.decode(data=riboseq_data, transition=transition)
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
+            'transcript_normalization_factor': riboseq_data.transcript_normalization_factor,
             'n_triplets': riboseq_data.n_triplets,
             'orf_posteriors': orf_posteriors_,
-            'data_logprob_full': riboseq_data.log_probability.tolist(),
-            'periodicity_model_full': riboseq_data.periodicity_model.tolist(),
-            'occupancy_model_full': riboseq_data.occupancy_model.tolist(),
-            'riboseq_counts_total_pileup': riboseq_data.total_pileup.tolist(),
-            'riboseq_counts_total_pileup_sum_footprints': riboseq_data.total_pileup.sum(axis=2).tolist(),
+            # 'data_logprob_full': riboseq_data.log_probability.tolist(),
+            # 'periodicity_model_full': riboseq_data.periodicity_model.tolist(),
+            # 'occupancy_model_full': riboseq_data.occupancy_model.tolist(),
+            # 'riboseq_counts_total_pileup': riboseq_data.total_pileup.tolist(),
+            # 'riboseq_counts_total_pileup_sum_footprints': riboseq_data.total_pileup.sum(axis=2).tolist(),
             # 'data_logprob_full': riboseq_data.log_likelihood.tolist(),
-            'state_alpha_full': state.alpha.tolist(),
+            # 'state_alpha_full': state.alpha.tolist(),
             # 'state_decode_alphas': state.decode_alphas.tolist(),
             # 'triplet_genomic_positions': triplet_genomic_positions,
             'decode': {

@@ -35,10 +35,20 @@ class Genome():
         if self._seq_handle is None:
             self._seq_handle = pysam.FastaFile(self.fasta_filename)
         sequences = []
+
+        # print('============')
+        # print('Start = 2_398_001 and Stop = 2_398_005')
+        # short_seq = self._seq_handle.fetch('chr11', 2_398_001, 2_398_005).upper()
+        # print(short_seq)
+        # print('============')
+
         for transcript in transcripts:
 
             # get DNA sequence
             seq = self._seq_handle.fetch(transcript.chromosome, transcript.start, transcript.stop).upper()
+            # print('transcript stop minus start: {}'.format(transcript.stop - transcript.start))
+            # print('transcript stop minus start plus 1: {}'.format(transcript.stop - transcript.start + 1))
+            # print('len of seq: {}'.format(len(seq)))
 
             # get DNA sequence of transcript
             # reverse complement, if necessary
