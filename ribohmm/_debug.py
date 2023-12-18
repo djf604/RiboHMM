@@ -1,0 +1,1 @@
+def view_candidate_cds(data, strand='pos', transcript_i=0, )
