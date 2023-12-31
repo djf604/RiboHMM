@@ -68,6 +68,14 @@ class RnaSequence(object):
     # @cython.wraparound(False)
     # @cython.nonecheck(False)
     def _mark_start_codons(self):
+        """
+        Given a sequence, mark the start codons. The marking is done 1 triplet behind the actual base pairs in the
+        sequence. For example, If the 5th triplet for a given frame is a start codon, this codon map will have the
+        4th triplet position marked as that start codon.
+
+        The start codon is un-marked if any of the triplets 2 to 5 ahead of the marked index are a stop codon (that's
+        1 to 4 triplets ahead of the actual base pairs in the sequence).
+        """
         offset = 3
         n_triplets = int(self.sequence_length / 3) - 1
         start_codon_map = np.zeros(shape=(n_triplets, 3), dtype=np.uint8)
@@ -75,9 +83,11 @@ class RnaSequence(object):
             for codon_start_pos in range(frame_i, 3 * n_triplets + frame_i, 3):  # TODO Python 2/3
                 triplet_i = int(codon_start_pos / 3)
                 try:
+                    # If the codon 1 triplet ahead of triplet_i is a start codon, mark it
                     start_codon_map[triplet_i, frame_i] = STARTS[self.sequence[codon_start_pos + offset:codon_start_pos + offset + 3]]
                 except KeyError:
                     pass
+                # If a stop codon is detected in any of triplets 2 - 5 ahead of triplet_i, unmark the start codon
                 for k in [3, 6, 9, 12]:
                     try:
                         STOPS[self.sequence[codon_start_pos + offset + k:codon_start_pos + offset + 3 + k]]

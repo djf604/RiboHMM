@@ -2152,13 +2152,13 @@ def get_triplet_state(triplet_i, start_pos, stop_pos):
         return States.ST_TIS
     if triplet_i == start_pos + 1:
         return States.ST_TIS_PLUS
-    if triplet_i == stop_pos - 1:
+    if triplet_i == stop_pos - 2:
         return States.ST_TTS_MINUS
-    if triplet_i == stop_pos:
+    if triplet_i == stop_pos - 1:
         return States.ST_TTS
-    if triplet_i == stop_pos + 1:
+    if triplet_i == stop_pos:
         return States.ST_3PRIME_UTS_MINUS
-    if triplet_i > stop_pos + 1:
+    if triplet_i > stop_pos:
         return States.ST_3PRIME_UTS
     return States.ST_TES
 
