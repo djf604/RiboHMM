@@ -298,8 +298,8 @@ def infer_CDS(
         records_to_write_, debug_metadata_ = fut.result()
         print(f'Got {len(records_to_write_)} records to write')
         records_to_write.extend(records_to_write_)
-        if debug_metadata_:
-            debug_metadata[infer_strand].extend(debug_metadata_)
+        for d in debug_metadata_:
+            debug_metadata[d['transcript_info']['strand']].append(d)
 
     # Output records
     for record in records_to_write:
