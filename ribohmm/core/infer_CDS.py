@@ -199,10 +199,10 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
                         'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
                         'relative': t.exons
                     },
-                    'riboseq_pileup_counts': {
-                        read_length: list(f[:, read_length_i])
-                        for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
-                    },
+                    # 'riboseq_pileup_counts': {
+                    #     read_length: list(f[:, read_length_i])
+                    #     for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
+                    # },
                     'results': candidate_cds_likelihoods
                 }
                 for t, candidate_cds_likelihoods, f in zip(transcripts, pos_data_log_probs, footprint_counts)

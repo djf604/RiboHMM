@@ -2196,25 +2196,25 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                 'start_codon_genomic_position': start_genomic_pos,
                 'stop_codon_genomic_position': stop_genomic_pos,
                 'data_loglikelihood': {
-                    'by_pos': triplet_likelihoods,
+                    # 'by_pos': triplet_likelihoods,
                     'sum': np.sum(triplet_likelihoods)
                 },
                 'data_loglikelihood_periodicity': {
-                    'by_pos': triplet_periodicity_likelihoods,
+                    # 'by_pos': triplet_periodicity_likelihoods,
                     'sum': np.sum(triplet_periodicity_likelihoods)
                 },
                 'data_loglikelihood_occupancy': {
-                    'by_pos': triplet_occupancy_likelihoods,
+                    # 'by_pos': triplet_occupancy_likelihoods,
                     'sum': np.sum(triplet_occupancy_likelihoods)
                 },
-                'state_alpha': {
-                    'by_pos': triplet_alpha_values,
-                    'sum': np.sum(triplet_alpha_values)
-                },
-                'state_likelihood': {
-                    'by_pos': triplet_state_likelihood_values,
-                    'sum': np.sum(triplet_state_likelihood_values)
-                },
+                # 'state_alpha': {
+                #     'by_pos': triplet_alpha_values,
+                #     'sum': np.sum(triplet_alpha_values)
+                # },
+                # 'state_likelihood': {
+                #     'by_pos': triplet_state_likelihood_values,
+                #     'sum': np.sum(triplet_state_likelihood_values)
+                # },
                 'orf_emission_error': {
                     'mean_rmse': orf_emission_error[ORF_EMISSION_ERROR_MEAN],
                     'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE],
@@ -2238,15 +2238,16 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         state.decode(data=riboseq_data, transition=transition)
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
+            'transcript_normalization_factor': riboseq_data.transcript_normalization_factor,
             'n_triplets': riboseq_data.n_triplets,
             'orf_posteriors': orf_posteriors_,
-            'data_logprob_full': riboseq_data.log_probability.tolist(),
-            'periodicity_model_full': riboseq_data.periodicity_model.tolist(),
-            'occupancy_model_full': riboseq_data.occupancy_model.tolist(),
-            'riboseq_counts_total_pileup': riboseq_data.total_pileup.tolist(),
-            'riboseq_counts_total_pileup_sum_footprints': riboseq_data.total_pileup.sum(axis=2).tolist(),
+            # 'data_logprob_full': riboseq_data.log_probability.tolist(),
+            # 'periodicity_model_full': riboseq_data.periodicity_model.tolist(),
+            # 'occupancy_model_full': riboseq_data.occupancy_model.tolist(),
+            # 'riboseq_counts_total_pileup': riboseq_data.total_pileup.tolist(),
+            # 'riboseq_counts_total_pileup_sum_footprints': riboseq_data.total_pileup.sum(axis=2).tolist(),
             # 'data_logprob_full': riboseq_data.log_likelihood.tolist(),
-            'state_alpha_full': state.alpha.tolist(),
+            # 'state_alpha_full': state.alpha.tolist(),
             # 'state_decode_alphas': state.decode_alphas.tolist(),
             # 'triplet_genomic_positions': triplet_genomic_positions,
             'decode': {
