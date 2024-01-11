@@ -300,7 +300,11 @@ def infer_CDS(
 
     # Output records
     for record in records_to_write:
-        handle.write(" ".join(map(str, record)) + '\n')
+        if record is not None:
+            try:
+                handle.write(" ".join(map(str, record)) + '\n')
+            except ValueError as e:
+                logger.warning(str(e))
     # Output debug output bundle
     if debug_metadata and dev_output_debug_data:
         with open(os.path.join(output_directory, dev_output_debug_data), 'w') as out:
