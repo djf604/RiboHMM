@@ -14,9 +14,9 @@ from ribohmm.core.ribohmm import infer_coding_sequence, discovery_mode_data_logp
 
 import logging
 logging.basicConfig(
-    format='[%(asctime)s.%(msecs)03d] %(message)s',
+    format='[%(asctime)s.%(msecs)03d|%(levelname)s] %(message)s',
     datefmt='%d%b%Y %H:%M:%S',
-    level=logging.INFO
+    level=logging.DEBUG
 )
 logger = logging.getLogger('viterbi_log')
 
@@ -31,8 +31,8 @@ N_FRAMES = 3
 def write_inferred_cds_discovery_mode(transcript, frame, rna_sequence, candidate_cds, orf_posterior,
                                       orf_start, orf_stop):
     try:
-        print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
-              f' Posteriors: {list(frame.posterior)} | {orf_posterior} * {frame.posterior[candidate_cds.frame]}')
+        # print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
+        #       f' Posteriors: {list(frame.posterior)} | {orf_posterior} * {frame.posterior[candidate_cds.frame]}')
         posterior = int(orf_posterior * frame.posterior[candidate_cds.frame] * 10_000)
         # print(f'###### {posterior}')
     except:
@@ -78,6 +78,9 @@ def write_inferred_cds(transcript, state, frame, rna_sequence):
 
     # output is not a valid CDS
     if tis is None or tts is None:
+        logger.warning(f'Could not find inference for transcript at '
+                       f'{transcript.chromosome}:{transcript.start}:{transcript.stop}'
+                       f':{transcript.strand}:{transcript.id} | tis: {tis} tts: {tts}')
         return None
 
     posterior = int(posteriors[index]*10000) 
@@ -196,10 +199,10 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
                         'absolute': [(e[0] + t.start, e[1] + t.start) for e in t.exons],
                         'relative': t.exons
                     },
-                    # 'riboseq_pileup_counts': {
-                    #     read_length: list(f[:, read_length_i])
-                    #     for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
-                    # },
+                    'riboseq_pileup_counts': {
+                        read_length: list(f[:, read_length_i])
+                        for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
+                    },
                     'results': candidate_cds_likelihoods
                 }
                 for t, candidate_cds_likelihoods, f in zip(transcripts, pos_data_log_probs, footprint_counts)
@@ -295,8 +298,8 @@ def infer_CDS(
         records_to_write_, debug_metadata_ = fut.result()
         print(f'Got {len(records_to_write_)} records to write')
         records_to_write.extend(records_to_write_)
-        for d in debug_metadata_:
-            debug_metadata[d['transcript_info']['strand']].append(d)
+        if debug_metadata_:
+            debug_metadata[infer_strand].extend(debug_metadata_)
 
     # Output records
     for record in records_to_write:

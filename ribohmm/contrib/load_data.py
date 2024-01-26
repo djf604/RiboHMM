@@ -1,3 +1,6 @@
+import os
+import hashlib
+import json
 import numpy as np
 import pandas as pd
 import pysam
@@ -6,6 +9,14 @@ from functools import reduce
 import ribohmm.utils as utils
 
 MIN_MAP_QUAL = 10
+
+import logging
+logging.basicConfig(
+    format='[%(asctime)s.%(msecs)03d|%(levelname)s] %(message)s',
+    datefmt='%d%b%Y %H:%M:%S',
+    level=logging.DEBUG
+)
+logger = logging.getLogger('viterbi_log')
 
 class Genome():
     def __init__(self, fasta_filename, map_filename, read_lengths):
@@ -164,23 +175,94 @@ class RiboSeq():
             self._counts_tbx.close()
 
 
+def format_elapsed(elapsed):
+    minutes, seconds = divmod(elapsed, 60)
+    return '{} minutes, {} seconds'.format(int(minutes), seconds)
+
 class RnaSeq():
     PILEUP_COUNT = 3
 
-    def __init__(self, rnaseq_counts_bed):
+    def __init__(self, rnaseq_counts_bed, use_cache=True, cache_dir=None):
         # Counts
         self.rnaseq_counts_bed = rnaseq_counts_bed
-        self._counts_tbx = None
+        self._counts_tbx = pysam.TabixFile(self.rnaseq_counts_bed)
         self.total = 0
 
+        if use_cache:
+            logger.info('Trying to load from cache')
+            cache_dir = cache_dir or os.path.join(os.path.expanduser('~'), '.ribohmm')
+            if not os.path.isdir(cache_dir):
+                try:
+                    os.makedirs(cache_dir, exist_ok=True)
+                except:
+                    raise OSError(f'Could not create directory {cache_dir}')
+            rna_counts_bed_md5 = hashlib.md5(open(rnaseq_counts_bed, 'rb').read()).hexdigest()
+            try:
+                with open(os.path.join(cache_dir, 'rna_counts.{}.json'.format(rna_counts_bed_md5))) as cache_in:
+                    self.total = json.load(cache_in)
+            except:
+                logger.info('Tried to use cache, but could not find one')
+                pass  # Silently fail, the cache does not exist
+
+        if self.total == 0:
+            import time
+            start = time.perf_counter()
+            for chrom in self._counts_tbx.contigs:
+                start0 = time.perf_counter()
+                # a = (int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom))
+                logger.info(
+                    'Elapsed time for pileup count: {}'.format(format_elapsed(time.perf_counter() - start0)))
+                start0 = time.perf_counter()
+                sum_total = sum((int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom)))
+                logger.info('Elapsed time for __init__ sum: {}, {}'.format(format_elapsed(time.perf_counter() - start0), sum_total))
+                # start0 = time.perf_counter()
+                # r = reduce(
+                #     lambda x, y: x + y,
+                #     (int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom))
+                # )
+                # self.total += r
+                self.total += sum_total
+                # logger.info('Elapsed time for reduce: {}, {}'.format(format_elapsed(time.perf_counter() - start0), r))
+            logger.info('Elapsed time for __init__ loading counts tbx: {}'.format(format_elapsed(time.perf_counter() - start)))
+
+            if use_cache:
+                try:
+                    logger.info('Trying to write to the cache')
+                    cache_dir = cache_dir or os.path.join(os.path.expanduser('~'), '.ribohmm')
+                    os.makedirs(cache_dir, exist_ok=True)
+                    rna_counts_bed_md5 = hashlib.md5(open(rnaseq_counts_bed, 'rb').read()).hexdigest()
+                    # transcr_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
+                    with open(os.path.join(cache_dir, 'rna_counts.{}.json'.format(rna_counts_bed_md5)), 'w') as cache_out:
+                        logger.info('Writing to {}'.format(os.path.join(cache_dir, 'rna_counts.{}.json'.format(rna_counts_bed_md5))))
+                        json.dump(self.total, cache_out)
+                except:
+                    logger.info('Could not write to cache')
+                    pass  # Silently fail, this is not an essential feature
+
+        self._counts_tbx = None
+
     def get_total_counts(self, transcripts):
+        import time
+        start = time.perf_counter()
         if self._counts_tbx is None:
             self._counts_tbx = pysam.TabixFile(self.rnaseq_counts_bed)
-            for chrom in self._counts_tbx.contigs:
-                self.total += reduce(
-                    lambda x, y: x + y,
-                    (int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom))
-                )
+            # for chrom in self._counts_tbx.contigs:
+            #     start0 = time.perf_counter()
+            #     # a = (int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom))
+            #     logger.info(
+            #         'Elapsed time for pileup count: {}'.format(format_elapsed(time.perf_counter() - start0)))
+            #     start0 = time.perf_counter()
+            #     sum_total = sum((int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom)))
+            #     logger.info('Elapsed time for sum: {}, {}'.format(format_elapsed(time.perf_counter() - start0), sum_total))
+            #     start0 = time.perf_counter()
+            #     r = reduce(
+            #         lambda x, y: x + y,
+            #         (int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom))
+            #     )
+            #     self.total += r
+            #     logger.info('Elapsed time for reduce: {}, {}'.format(format_elapsed(time.perf_counter() - start0), r))
+        logger.info('Elapsed time for loading counts tbx: {}'.format(format_elapsed(time.perf_counter() - start)))
+        start_ = time.perf_counter()
         total_counts = list()
         for transcript in transcripts:
             mask = transcript.mask if transcript.strand == '+' else transcript.mask[::-1]
@@ -193,6 +275,7 @@ class RnaSeq():
 
             total_counts.append(max(1, counts) * 1e6 / (transcript.L * self.total))
 
+        logger.info('Elapsed time for getting counts: {}'.format(format_elapsed(time.perf_counter() - start_)))
         return np.array(total_counts)
 
     def close(self):
@@ -259,8 +342,9 @@ class Transcript():
 
             # order exons
             """Sort self.exons::list by start coordinate"""
-            order = np.argsort(np.array([e[0] for e in self.exons]))
-            self.exons = [[self.exons[o][0],self.exons[o][1]] for o in order]
+            # order = np.argsort(np.array([e[0] for e in self.exons]))
+            # self.exons = [[self.exons[o][0],self.exons[o][1]] for o in order]
+            self.exons = sorted(self.exons)
 
             # extend transcript boundaries, if needed
             self.start = min([self.start, self.exons[0][0]])
