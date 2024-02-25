@@ -5,6 +5,7 @@ import json
 import datetime
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, wait, ThreadPoolExecutor
+from copy import deepcopy
 
 import numpy as np
 
@@ -193,7 +194,8 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
                         'stop': t.stop,
                         'strand': t.strand,
                         'length': t.stop - t.start + 1,
-                        'id': t.id
+                        'id': t.id,
+                        'ref_id': t.ref_transcript_id
                     },
                     'sequence': seq,
                     'transcript_string': str(t.raw_attrs),
@@ -259,6 +261,20 @@ def infer_CDS(
     """
     model_params = json.load(open(model_file))
 
+    # Restrict to a certain list of transcripts for debugging purposes
+    pos_transcripts_without_start_codon = [
+        'STRG.6369.3',
+        'STRG.6877.1',
+        'STRG.7104.1',
+        'STRG.7464.6',
+        'STRG.7464.30',
+        'STRG.7464.33'
+    ]
+    transcript_models = {k: v for k, v in transcript_models.items() if v.id in pos_transcripts_without_start_codon}
+
+    for v in transcript_models.values():
+        print('{}: {}'.format(v.id, v.strand))
+
     # load transcripts
     transcript_names = list(transcript_models.keys())[:N_TRANSCRIPTS]
     print(f'!!!!! Size of transcripts: {len(transcript_names)}')
@@ -287,7 +303,7 @@ def infer_CDS(
                 futs.append(executor.submit(
                     infer_on_transcripts,
                     primary_strand=infer_strand,
-                    transcripts=transcripts_chunk,
+                    transcripts=deepcopy(transcripts_chunk),
                     ribo_track=ribo_track,
                     genome_track=genome_track,
                     rnaseq_track=rnaseq_track,
@@ -299,7 +315,6 @@ def infer_CDS(
     wait(futs)
     for fut in futs:
         records_to_write_, debug_metadata_ = fut.result()
-        print(f'Got {len(records_to_write_)} records to write')
         records_to_write.extend(records_to_write_)
         for d in debug_metadata_:
             debug_metadata[d['transcript_info']['strand']].append(d)
@@ -320,7 +335,9 @@ def infer_CDS(
             print('********************')
             print('number of pos: {}'.format(len(debug_metadata['+'])))
             print('number of neg: {}'.format(len(debug_metadata['-'])))
-            json.dump(serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']}), out)
+            debug_output = serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']})
+            json.dump(debug_output, out)
+        utils.find_start_codon(data=debug_output, annotated_CDS_dict=json.load(open('/work/08246/dfitzger/ls6/annotated_CDS_dict.json')))
 
     logger.info('Closing handles')
     handle.close()

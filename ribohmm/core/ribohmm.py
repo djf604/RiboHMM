@@ -341,7 +341,7 @@ class Data:
     def compute_minimal_ORF_log_probability(self):
         N_FRAMES = 3
         orf_state_matrix, candidate_cds_matrix = self.orf_state_matrix()
-        print('#### Size of candidate cds: {}'.format(sum([len(c) for c in candidate_cds_matrix])))
+        # print('#### Size of candidate cds: {}'.format(sum([len(c) for c in candidate_cds_matrix])))
 
         # orf_periodicity_likelihoods = [list(), list(), list()]
         orf_periodicity_likelihoods = dict()
@@ -2354,8 +2354,12 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
     except:
         pass
 
+    # import json
+    # with open('/work/08246/dfitzger/ls6/annotated_CDS_dict.json', 'w') as out:
+    #     json.dump({'start': start_codon_annotated, 'stop': stop_codon_annotated}, out)
+
     for transcript, riboseq_data in zip(transcripts, data):
-        print('##### Looking at transcript {}'.format(i))
+        # print('##### Looking at transcript {}'.format(i))
         transcript_id = transcript.raw_attrs['reference_id']
         i += 1
         riboseq_data.compute_log_probability(emission)
@@ -2449,24 +2453,24 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         # all_candidate_cds = riboseq_data.get_candidate_cds_simple()
         _, all_candidate_cds = riboseq_data.orf_state_matrix()
         all_candidate_cds = all_candidate_cds[0] + all_candidate_cds[1] + all_candidate_cds[2]
-
-        print('^^^^^^^^^^^^^^^')
-        print('orf periodicity size: {}'.format(len(orf_periodicity_likelihoods)))
-        print('candidate cds size: {}'.format(len(all_candidate_cds)))
+        #
+        # print('^^^^^^^^^^^^^^^')
+        # print('orf periodicity size: {}'.format(len(orf_periodicity_likelihoods)))
+        # print('candidate cds size: {}'.format(len(all_candidate_cds)))
 
 
         # For each candidate CDS in this transcript
         # print('### Size of candidate cds: {}'.format(len(all_candidate_cds)))
-        if len(all_candidate_cds) == 0:
-            print('@@@@@@@@@@@@@@@ There is a 0')
-            print(transcript.chromosome)
-            print(transcript.start)
-            print(transcript.stop)
-            print('Size of raw candidate CDS')
-            print(len(riboseq_data.get_candidate_cds_simple()))
-            print('Codon map')
-            print(riboseq_data.codon_map)
-            print('@@@@@@@@@@@@@@@@@@@@@')
+        # if len(all_candidate_cds) == 0:
+        #     print('@@@@@@@@@@@@@@@ There is a 0')
+        #     print(transcript.chromosome)
+        #     print(transcript.start)
+        #     print(transcript.stop)
+        #     print('Size of raw candidate CDS')
+        #     print(len(riboseq_data.get_candidate_cds_simple()))
+        #     print('Codon map')
+        #     print(riboseq_data.codon_map)
+        #     print('@@@@@@@@@@@@@@@@@@@@@')
         for candidate_cds, orf_emission_error in zip(all_candidate_cds, emission_errors):
             # print('Looking at candidate cds: {}'.format(candidate_cds))
             # if candidate_cds not in {
@@ -2483,6 +2487,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             triplet_state_likelihood_values = list()
             triplet_states = list()
 
+            # Algorithm to find the start and stop positions
             if transcript.strand == '-':
                 exonic_positions = np.arange(transcript.start, transcript.stop)[::-1][transcript.mask]
                 # exonic_positions = np.arange(transcript.start, transcript.stop)[transcript.mask][::-1]
@@ -2496,13 +2501,22 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                 exonic_positions = np.append(exonic_positions, [-2] * (3 - (len(exonic_positions) % 3)))
 
             # Chunk exonic positions into triplets
-            # triplet_genomic_positions = np.array(np.split(exonic_positions, 3))
             triplet_genomic_positions = exonic_positions.reshape(-1, 3)
-            # TODO This is splitting into 3 sets of even size, I want however many chunks all of size 3
 
             # Get genomic position of start and stop codons
             start_genomic_pos = list(triplet_genomic_positions[candidate_cds.start])
             stop_genomic_pos = list(triplet_genomic_positions[candidate_cds.stop])
+
+            # Get the triplet of the position marked as the annotated CDS
+            annotated_start_pos = start_codon_annotated.get(transcript_id)
+            annotated_triplet_pos = [
+                (i, int(np.argwhere(np.array(triplet) == annotated_start_pos)[0][0]))
+                for i, triplet in enumerate(triplet_genomic_positions)
+                # if annotated_start_pos == triplet[0]
+                if annotated_start_pos in triplet
+            ]
+
+
             # frame_i = candidate_cds.frame
             # if sum(start_genomic_pos[-2:]) == -2:
             #     start_genomic_pos = [
@@ -2548,6 +2562,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                 'stop_codon_genomic_position': stop_genomic_pos,
                 'annotated_start': start_codon_annotated.get(transcript_id),
                 'annotated_stop': stop_codon_annotated.get(transcript_id),
+                'annotated_triplet_i': annotated_triplet_pos,
                 'strand': transcript.strand,
                 'exonic_positions': (
                     list(np.arange(transcript.start, transcript.stop)[transcript.mask])
