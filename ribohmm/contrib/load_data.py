@@ -130,18 +130,49 @@ class RiboSeq():
         :param exon_counts: bool Whether to return counts per base or per exon
         :param transcripts: list of load_data.Transcript objects
         :return: list np.Array of shape (n_bases|n_exons, n_read_lengths)
+
+
+        for each transcript:
+            counts_df = dataframe where each row is a base position in the transcript and each column is
+                        is a read length
+            for each count_record in this transcript region:
+                count_record = chr, start, stop, count, fwd/rev, read_length
+                assert that count_record['read_length'] is one of the RiboSeq object's count lengths
+                assert that we only count "fwd" count_records if the transcript is on the + strand OR the strand
+                       is unknown (.) and only "rev" count_records if the transcript is on the - strand
+                if both above are true:
+                    set count_df[base_position, read_length] = count_record['count']
+
+            if we only want the pileup for each exon:
+                calculate sum of counts in each exon for this transcript
+                report counts for each exon
+            else:
+                if transcript is on - strand:
+                    counts_df = (counts_df with the row order reversed)
+                report counts, but only the exonic base positions
+
         """
         if self._counts_tbx is None:
             self._counts_tbx = pysam.TabixFile(self.riboseq_counts_bed)
         read_counts = list()
         for transcript in transcripts:
-            tscpt_counts_df = pd.DataFrame(index=range(transcript.mask.shape[0]), columns=self._read_lengths)
+            # Create a data frame where the rows represent each base of the transcript and the columns are the
+            # read lengths
+            # The initial value for all elements in the dataframe is NaN
+            tscpt_counts_df = pd.DataFrame(index=range(transcript.mask.shape[0]), columns=self._read_lengths, data=0)
+
+            # Iterate over all the count records in the riboseq BED file
             for count_record in self._counts_tbx.fetch(transcript.chromosome, transcript.start, transcript.stop):
-                # chrom start stop counts fwd/rev read_length
+                # Record format is: chrom start stop counts fwd/rev read_length
                 chrom, start, stop, asite_count, strandedness, read_length = count_record.split('\t')
                 read_length = int(read_length)
                 count_pos = int(start) - transcript.start
                 # This may change, but for now unknown transcript only have positive reads counted
+                # Ensure that:
+                # 1) The read length of the record is one of the read lengths of this RiboSeq object
+                # 2) If the transcript is on the + strand, only read "fwd" reads. If the transcript is on the -
+                #    strand, only read "rev" reads. If the transcript strand is unknown (its value is .) then only
+                #    read "fwd" reads.
                 if (
                     read_length in self._read_lengths
                     and (
@@ -149,18 +180,23 @@ class RiboSeq():
                         or (transcript.strand == '-' and strandedness == 'rev')
                     )
                 ):
+                    # If for some reason there were multiple entries in the reads BED file, only the
+                    # last count value would persist
                     tscpt_counts_df.loc[count_pos, read_length] = int(asite_count)
 
             if exon_counts:
-                tscpt_exons_counts = tscpt_counts_df.fillna(0).astype(int).values
+                tscpt_exons_counts = tscpt_counts_df.values
+                # For each exon, find the sum of all bases within that exon
                 read_counts.append(np.array(
                     [tscpt_exons_counts[start:end].sum() for start, end in transcript.exons]
                 ))
             else:
-                tscpt_counts_df = tscpt_counts_df.fillna(0).astype(int)
+                # tscpt_counts_df = tscpt_counts_df.fillna(0).astype(int)
                 if transcript.strand == '-':
+                    # Reverse the row order of the dataframe
                     tscpt_counts_df = tscpt_counts_df.iloc[::-1]
 
+                # Report counts at each base, but only for exonic bases
                 read_counts.append(tscpt_counts_df.loc[transcript.mask.astype(bool)].values)
 
         return read_counts
@@ -463,13 +499,18 @@ def load_gtf(filename, use_cache=True, cache_dir=None):
             else:
                 exon_cache.append((transcript_id, start, stop))
         elif transcript_id not in transcripts and gtf_record[2].strip() == 'transcript':
-            transcripts[transcript_id] = Transcript(
-                chrom, start, stop,
-                # TODO In a later version we may want to implement a more sophisticated approach, adding two
-                # transcripts if the strand is unknown
-                strand=strand,
-                attrs=attrs
-            )
+            # If the strand is known add only that strand, but if it is unknown add both
+            if strand in {'+', '-'}:
+                add_strands = [(strand, transcript_id)]
+            else:
+                add_strands = [('+', f'{transcript_id}-pos-strand'), ('-', f'{transcript_id}-neg-strand')]
+            for add_strand, add_transcript_id in add_strands:
+                transcripts[add_transcript_id] = Transcript(
+                    chrom, start, stop,
+                    strand=add_strand,
+                    attrs=attrs
+                )
+
                 
     handle.close()
 
