@@ -246,6 +246,7 @@ class RnaSeq():
             try:
                 with open(os.path.join(cache_dir, 'rna_counts.{}.json'.format(rna_counts_bed_md5))) as cache_in:
                     self.total = json.load(cache_in)
+                logger.info('Loaded from cache file {}'.format('rna_counts.{}.json'.format(rna_counts_bed_md5)))
             except:
                 logger.info('Tried to use cache, but could not find one')
                 pass  # Silently fail, the cache does not exist
@@ -440,6 +441,7 @@ def load_gtf(filename, use_cache=True, cache_dir=None):
         transcr_model_md5 = hashlib.md5(open(filename).read().encode()).hexdigest()
         try:
             with open(os.path.join(cache_dir, 'transcr.{}.dill'.format(transcr_model_md5)), 'rb') as cache_in:
+                logger.info('Attemping to load GTF cache from {}'.format('transcr.{}.dill'.format(transcr_model_md5)))
                 return dill.load(cache_in)
         except:
             pass  # Silently fail, the cache does not exist

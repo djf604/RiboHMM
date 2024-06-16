@@ -117,6 +117,15 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
         raise ValueError('primary_strand must be either + or -')
     opposite_strand = '-' if primary_strand == '+' else '+'
 
+    # Only for debugging ORFs
+    # transcripts = [t for t in transcripts if t.id in {
+    #     'STRG.6369.3',
+    #     'STRG.6877.1',
+    #     'STRG.6285.11',
+    #     'STRG.6377.18',
+    #     'STRG.6667.5'
+    # }]
+
     logger.info(f'Looking at transcript {primary_strand} strands')
     for t in transcripts:
         if t.strand == opposite_strand:
@@ -183,7 +192,8 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
                 mappability=rna_mappability,
                 transition=model_params['transition'],
                 emission=model_params['emission'],
-                transcripts=transcripts
+                transcripts=transcripts,
+                sequences=rna_sequences
             )
             discovery_mode_debug_metadata = [
                 {
@@ -322,6 +332,10 @@ def infer_CDS(
             print('number of neg: {}'.format(len(debug_metadata['-'])))
             json.dump(serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']}), out)
 
+    # Some debugging for the debug_metadata object
+    debug_object = serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']})
+    find_start_codon(debug_object)
+
     logger.info('Closing handles')
     handle.close()
     ribo_track.close()
@@ -348,3 +362,137 @@ def serialize_output(results):
 #     options = parse_args()
 #
 #     infer(options)
+
+
+def find_start_codon(data, only_show_missing=True):
+    n_transcripts_without_start = [0, 0]
+    print('Running find_start_codon()')
+    for strand in ('pos', 'neg'):
+        for trns_i, trns in enumerate(data[strand]):
+            has_start_codon = list()
+            within_five = list()
+            #start_codon_index = 0 if orf['strand'] == '+' else 2
+            closest_start = (9e10, None)
+            if len(trns['results']['candidate_orf']) == 0:
+                print('{} transcript {}/None has no ORFS'.format(strand, trns['transcript_info'].get('id')))
+                continue
+            for i, orf in enumerate(trns['results']['candidate_orf']):
+                start_codon_index = 0 if orf['strand'] == '+' else 2
+                transcript_id = orf['transcript_id']
+                annotated_start = orf['annotated_start']
+                # print('one')
+                # print(orf['annotated_start'])
+                # print(transcript_id)
+                try:
+                    distance_to_start = abs(orf['start_codon_genomic_position'][start_codon_index] - orf['annotated_start'])
+                except:
+                    print('Could not find distance to start for transcript {} ORF {}'.format(trns['transcript_info'].get('id'), i))
+                if orf['start_codon_genomic_position'][start_codon_index] == orf['annotated_start']:
+                    has_start_codon.append(orf['definition'])
+                if distance_to_start < 5:
+                    within_five.append(orf['definition'])
+                if distance_to_start < closest_start[0]:
+                    closest_start = (distance_to_start, orf['definition'])
+            if len(has_start_codon) > 0:
+                if not only_show_missing:
+                    print('{} transcript {}/{} has detectable annotated start codon'.format(strand, trns['transcript_info'].get('id'), transcript_id))
+            else:
+                if strand == 'pos':
+                    n_transcripts_without_start[0] += 1
+                else:
+                    n_transcripts_without_start[1] += 1
+                if len(within_five) > 0:
+                    print('{} transcript {}/{} has detectable annotated start codon within 5bp (index {})'.format(
+                        strand, trns['transcript_info'].get('id'), transcript_id, trns_i)
+                    )
+                else:
+                    print('!!!!!! {} transcript {}/{} is missing the annotated start codon (index {})'.format(
+                        strand, trns['transcript_info'].get('id'), transcript_id, trns_i)
+                    )
+                print('Annotated start: {}'.format(annotated_start))
+                print('Exons:')
+                print(trns['exons']['absolute'])
+                print(trns['transcript_info'])
+
+                # Print whether this is a case where the annotated start corresponds with the start of the transcript
+                if trns['transcript_info']['strand'] == '+':
+                    if int(annotated_start) == int(trns['transcript_info']['start']):
+                        print('** Annotated start detected at beginning of pos transcript **')
+                else:  # Is on negative strand
+                    if int(annotated_start) == int(trns['transcript_info']['stop']) - 3:
+                        print('** Annotated start detected at beginning of neg transcript **')
+
+                print(f'closest start: {closest_start}')
+                # print(closest_start)
+                print(f'annotated start: {annotated_start}\n')
+
+    print('N pos without start: {}'.format(n_transcripts_without_start[0]))
+    print('N neg without start: {}'.format(n_transcripts_without_start[1]))
+
+
+
+
+STARTCODONS = [
+    'AUG', 'CUG', 'GUG', 'UUG', 'AAG',
+    'ACG', 'AGG', 'AUA', 'AUC', 'AUU'
+]
+STOPCODONS = ['UAA', 'UAG', 'UGA']
+
+def get_codon_from_seq(seq, frame, triplet_i, stop_i=None):
+  stop_i = stop_i or triplet_i
+  for i in range(triplet_i, stop_i + 1):
+      codon = seq[(3 * i) + frame:(3 * i) + frame + 3]
+      if codon in STARTCODONS:
+          print(f'{codon} [Start]')
+      elif codon in STOPCODONS:
+          print(f'{codon} [Stop]')
+      else:
+          print(f'{codon}')
+
+def write_seq(seq, numbers=False):
+  out = ''
+  for i, s in enumerate(seq):
+    if i % 3 == 0:
+      out += ' '
+      if numbers:
+        out += '[{}]'.format((int(i / 3)))
+    out += s
+  return out.strip()
+  if divmod(len(seq), 3)[1] != 0:
+    offset = 1
+  else:
+    offset = 0
+  return ' '.join([seq[s:s+3] for s in range(int(len(seq) / 3) + offset)])
+
+
+"""
+[
+  ...
+  [0 0 0],
+  [0 0 0],
+  
+  [3 0 0],
+  [0 0 0]
+]
+
+
+[
+  [0 0 0]
+  [0 1 0],
+  [0 0 0],
+  [0 0 0],
+  [0 0 0]
+]
+
+
+ACGTC
+GTC AAT CCT CT    CT =/= AUG
+CGT C
+
+"""
+
+
+
+
+
+
