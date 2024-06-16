@@ -54,7 +54,7 @@ class RnaSequence(object):
         self.S = len(self.sequence)
         self.sequence_length = len(self.sequence)
 
-    def mark_codons(self):
+    def mark_codons(self, discovery_mode=True):
         # cdef dict codon_flags
         codon_flags = dict()
 
@@ -62,7 +62,39 @@ class RnaSequence(object):
         codon_flags['start'] = self._mark_start_codons()
         codon_flags['stop'] = self._mark_stop_codons()
 
+        if discovery_mode:
+            codon_flags['discovery_start'] = self._mark_start_codons_discovery()
+            codon_flags['discovery_stop'] = self._mark_stop_codons_discovery()
+
         return codon_flags
+
+    def _mark_start_codons_discovery(self):
+        n_triplets = int(len(self.sequence) / 3)
+
+        # -1 will denote a triplet which does not exist for a frame, so we start with all -1
+        start_codon_map = np.ones(shape=(n_triplets, 3), dtype=np.uint8) * -1
+        for frame_i in range(3):
+            frame_seq = self.sequence[frame_i:]
+            for triplet_i in range(int(len(frame_seq) / 3)):
+                codon = frame_seq[triplet_i * 3:triplet_i * 3 + 3]
+                start_codon_map[triplet_i, frame_i] = STARTS.get(codon, 0)
+
+        return start_codon_map
+
+
+    def _mark_stop_codons_discovery(self):
+        n_triplets = int(len(self.sequence) / 3)
+
+        # -1 will denote a triplet which does not exist for a frame, so we start with all -1
+        stop_codon_map = np.ones(shape=(n_triplets, 3), dtype=np.uint8) * -1
+        for frame_i in range(3):
+            frame_seq = self.sequence[frame_i:]
+            for triplet_i in range(int(len(frame_seq) / 3)):
+                codon = frame_seq[triplet_i * 3:triplet_i * 3 + 3]
+                stop_codon_map[triplet_i, frame_i] = STOPS.get(codon, 0)
+
+        return stop_codon_map
+
 
     # @cython.boundscheck(False)
     # @cython.wraparound(False)

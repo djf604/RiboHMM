@@ -60,7 +60,7 @@ def outsum(arr):
 
 
 class Data:
-    def __init__(self, riboseq_pileup, codon_map, transcript_normalization_factor, is_pos_mappable):
+    def __init__(self, riboseq_pileup, codon_map, transcript_normalization_factor, is_pos_mappable, seq):
         """Instantiates a data object for a transcript and populates it 
         with observed ribosome-profiling data, expression RPKM as its
         scaling factor, and the DNA sequence of each triplet in the 
@@ -105,6 +105,8 @@ class Data:
 
         # For backward compatibility
         obs, codon_id, scale, mappable = riboseq_pileup, codon_map, transcript_normalization_factor, is_pos_mappable
+
+        self.seq = seq
 
         # Save raw riboseq pileup
         self.raw_riboseq_pileup = deepcopy(riboseq_pileup)
@@ -322,8 +324,63 @@ class Data:
         """
         n_triplets = self.codon_map['start'].shape[0]
         state_seq = np.array(self.get_state_sequence(n_triplets, candidate_cds.start, candidate_cds.stop))
-        start_minimal_orf = int(np.where(state_seq == States.ST_5PRIME_UTS_PLUS)[0][0] - buffer)
-        end_minimal_orf = int(np.where(state_seq == States.ST_3PRIME_UTS_MINUS)[0][0] + buffer)
+        try:
+            start_minimal_orf = int(np.where(state_seq == States.ST_5PRIME_UTS_PLUS)[0][0] - buffer)
+        except:
+            print('state_seq')
+            print(state_seq)
+            print(state_seq.shape)
+            print(n_triplets)
+            print(candidate_cds.start)
+            print(candidate_cds.stop)
+
+            def write_seq(seq, numbers=False):
+                out = ''
+                for i, s in enumerate(seq):
+                    if i % 3 == 0:
+                        out += ' '
+                        if numbers:
+                            out += '[{}]'.format((int(i / 3)))
+                    out += s
+                return out.strip()
+                if divmod(len(seq), 3)[1] != 0:
+                    offset = 1
+                else:
+                    offset = 0
+                return ' '.join([seq[s:s + 3] for s in range(int(len(seq) / 3) + offset)])
+            print(write_seq(self.seq, numbers=True))
+            raise
+        try:
+            end_minimal_orf = int(np.where(state_seq == States.ST_3PRIME_UTS_MINUS)[0][0] + buffer)
+        except:
+            # Where the last triplet is a stop codon
+            if state_seq[-1] == States.ST_TTS:
+                end_minimal_orf = int(np.where(state_seq == States.ST_TTS)[0][0] + buffer)
+            else:
+                print('end minimal orf')
+                print('state_seq')
+                print(state_seq)
+                print(state_seq.shape)
+                print(n_triplets)
+                print(candidate_cds.start)
+                print(candidate_cds.stop)
+
+                def write_seq(seq, numbers=False):
+                    out = ''
+                    for i, s in enumerate(seq):
+                        if i % 3 == 0:
+                            out += ' '
+                            if numbers:
+                                out += '[{}]'.format((int(i / 3)))
+                        out += s
+                    return out.strip()
+                    if divmod(len(seq), 3)[1] != 0:
+                        offset = 1
+                    else:
+                        offset = 0
+                    return ' '.join([seq[s:s + 3] for s in range(int(len(seq) / 3) + offset)])
+                print(write_seq(self.seq, numbers=True))
+                raise
         return start_minimal_orf, end_minimal_orf
 
     def get_minimal_ORF_overlapping_reads(self, candidate_cds):
@@ -381,7 +438,8 @@ class Data:
 
         return orf_periodicity_likelihoods, orf_occupancy_likelihoods
 
-    def compute_observed_pileup_deviation(self, emission, return_sorted=True):
+
+    def compute_observed_pileup_deviation(self, emission, return_sorted=True, normalize_tes=False):
         """
         For each ORF, for each read length, for the first two base positions in each triplet, computes a
         difference between observed and expected pileup
@@ -420,6 +478,7 @@ class Data:
                 # only_orf_square_error = np.zeros(shape=(self.n_triplets, 3))
                 with_utr_square_error = list()
                 only_orf_square_error = list()
+                tes_buffer = list()
                 n_triplets_dropped_for_mappability = 0
                 pileups = list()
                 for triplet_i in range(self.n_triplets):
@@ -432,6 +491,10 @@ class Data:
                     triplet_state = get_triplet_state(triplet_i, start_pos=observed_start, stop_pos=observed_stop)
                     state_expected = np.exp(expected[triplet_state])
 
+                    # If we're normalizing the TES, ignore any of the UTS regions
+                    if normalize_tes and triplet_state in {States.ST_5PRIME_UTS, States.ST_3PRIME_UTS}:
+                        continue
+
                     # Get observed pileup proportions
                     triplet_positions = slice(triplet_i * 3 + observed_frame_i, 3 * triplet_i + observed_frame_i + 3)
                     triplet_pileups = self.riboseq_pileup[triplet_positions, footprint_length_i]
@@ -442,15 +505,15 @@ class Data:
                     else:
                         triplet_proportions = triplet_pileups / triplet_pileups.sum()
                     square_error = (triplet_proportions - state_expected) ** 2
-                    # with_utr_square_error[triplet_i] = square_error
-                    with_utr_square_error.append(list(square_error))
 
-                    if orf_start_triplet <= triplet_i <= orf_stop_triplet:
-                        # only_orf_square_error[triplet_i] = square_error
-                        pileups.extend(list(triplet_pileups))
-                        only_orf_square_error.append(list(square_error))
-                    # else:
-                    #     only_orf_square_error[triplet_i] = 0
+                    if normalize_tes and triplet_state == States.ST_TES:
+                        tes_buffer.append(list(square_error))
+                    else:
+                        with_utr_square_error.append(list(square_error))
+
+                        if orf_start_triplet <= triplet_i <= orf_stop_triplet:
+                            pileups.extend(list(triplet_pileups))
+                            only_orf_square_error.append(list(square_error))
 
                 # Record the number of triplet dropped for mappability reasons
                 triplets_dropped_for_mappability.append(n_triplets_dropped_for_mappability)
@@ -458,16 +521,47 @@ class Data:
                 # Record the pileups for each footprint
                 ORF_pileups[footprint_length_i] = np.sum(pileups)
 
+                # If normalizing TES, take the mean here and append to the other Square Errors
+                if normalize_tes:
+                    # print('&&&&&&&&&&&&&&&&&&&&&&')
+                    # print(tes_buffer)
+                    if tes_buffer:
+                        tes_buffer_mean = np.array(tes_buffer).mean(axis=0).tolist()
+                    else:
+                        tes_buffer_mean = [1/3, 1/3, 1/3]
+                    # print(tes_buffer_mean)
+                    with_utr_square_error.append(tes_buffer_mean)
+                    # print(with_utr_square_error)
+                    only_orf_square_error.append(tes_buffer_mean)
+
                 # Convert error data into numpy array for processing
                 with_utr_square_error = np.array(with_utr_square_error)
+                # print(type(with_utr_square_error))
+                # print(with_utr_square_error.shape)
+                # print(with_utr_square_error)
                 if only_orf_square_error:
                     only_orf_square_error = np.array(only_orf_square_error)
                 else:
                     only_orf_square_error = np.zeros(shape=(1, 3))
 
                 # Get the error for each triplet, summing the error of each base pair
-                by_triplet_error_with_utr[footprint_length_i] = np.sum(with_utr_square_error, axis=1)
-                by_triplet_error_only_orf[footprint_length_i] = np.sum(only_orf_square_error, axis=1)
+                try:
+                    by_triplet_error_with_utr[footprint_length_i] = np.sum(with_utr_square_error, axis=1)
+                except:
+                    # print(self.n_triplets)
+                    # print(observed_start)
+                    # print(observed_stop)
+                    print('999999999999999')
+                    print(with_utr_square_error)
+                    by_triplet_error_with_utr[footprint_length_i] = -1
+                    # print(self.get_state_sequence(self.n_triplets, observed_start, observed_stop))
+                    # raise
+                try:
+                    by_triplet_error_only_orf[footprint_length_i] = np.sum(only_orf_square_error, axis=1)
+                except:
+                    print('888888888888888888888')
+                    print(with_utr_square_error)
+                    by_triplet_error_only_orf[footprint_length_i] = -1
 
 
                 # Calculate the RM part of the RMSE
@@ -483,6 +577,16 @@ class Data:
             # Record the overall RMSE as the mean of each footprint RMSE
             orf_error_with_utr = np.mean(footprint_errors_with_utr)
             orf_error_only_orf = np.mean(footprint_errors_only_orf)
+            # print(f'Is mean tes: {normalize_tes}')
+            # print(type(candidate_orf))
+            # print(type(orf_error_with_utr))
+            # print(type(by_triplet_error_with_utr))
+            # print(type(by_triplet_error_with_utr[0]))
+            # print(type(orf_error_only_orf))
+            # print(type(by_triplet_error_only_orf))
+            # print(type(by_triplet_error_only_orf[0]))
+            # print(type(triplets_dropped_for_mappability))
+            # print(type(ORF_pileups))
             orfs_with_errors.append((candidate_orf, orf_error_with_utr, by_triplet_error_with_utr,
                                      orf_error_only_orf, by_triplet_error_only_orf, triplets_dropped_for_mappability,
                                      ORF_pileups))
@@ -491,7 +595,45 @@ class Data:
             return orfs_with_errors
         return sorted(orfs_with_errors, key=lambda r: r[1])
 
-    def get_candidate_cds_simple(self, shifted_forward=True):
+
+    @staticmethod
+    def get_all_ORFs(seq):
+        """
+        This method does not use the codon map, rather it looks in the raw sequence.
+
+        Returns:
+        """
+        STARTCODONS = {
+            'AUG', 'CUG', 'GUG', 'UUG', 'AAG',
+            'ACG', 'AGG', 'AUA', 'AUC', 'AUU'
+        }
+        STOPCODONS = {'UAA', 'UAG', 'UGA'}
+        N_FRAMES = 3
+        # n_triplets = local_start_codon_map.shape[0]
+        # n_triplets = len(seq)
+        candidate_cds = list()
+
+        def codon(pos_i, seq):
+            return seq[pos_i * 3:(pos_i + 1) * 3]
+
+        for frame_i in range(N_FRAMES):
+            frame_seq = seq[frame_i:]
+            n_triplets = int(len(frame_seq) / 3)
+            for pos_i in range(n_triplets):
+                if codon(pos_i, frame_seq) in STARTCODONS:
+                    for stop_i in range(pos_i + 1, n_triplets):
+                        if codon(stop_i, frame_seq) in STOPCODONS:
+                            candidate_cds.append(CandidateCDS(
+                                frame=frame_i,
+                                start=pos_i,
+                                stop=stop_i
+                            ))
+                            break
+
+        return candidate_cds
+
+
+    def get_candidate_cds_simple(self, shifted_forward=False):
         """
 
         Args:
@@ -500,8 +642,9 @@ class Data:
         Returns:
 
         """
-        local_start_codon_map = self.codon_map['start'].copy()
-        local_stop_codon_map = self.codon_map['stop'].copy()
+        # return self.get_all_ORFs(self.seq)
+        local_start_codon_map = self.codon_map['discovery_start'].copy()
+        local_stop_codon_map = self.codon_map['discovery_stop'].copy()
 
         if shifted_forward:
             local_start_codon_map = np.roll(local_start_codon_map, shift=1, axis=0)
@@ -518,7 +661,7 @@ class Data:
             for frame_i in range(N_FRAMES):
                 if local_start_codon_map[pos_i, frame_i] > 0:
                     for stop_i in range(pos_i, n_triplets):
-                        if local_stop_codon_map[stop_i, frame_i] > 0:
+                        if local_stop_codon_map[stop_i, frame_i] > 0 and stop_i - pos_i >= 5:
                             candidate_cds.append(CandidateCDS(
                                 frame=frame_i,
                                 start=pos_i,
@@ -565,7 +708,7 @@ class Data:
         orf_state_matrix_ = [list(), list(), list()]
         candidate_cds_ = [list(), list(), list()]
 
-        for candidate_cds in self.get_candidate_cds_simple():
+        for candidate_cds in self.get_candidate_cds_simple(shifted_forward=False):
             state_seq = self.get_state_sequence(n_triplets, candidate_cds.start, candidate_cds.stop)
             if state_seq[0] == 0:
                 orf_state_matrix_[candidate_cds.frame].append(state_seq)
@@ -2239,7 +2382,7 @@ def get_triplet_string(state):
 
 
 def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability,
-                                transition, emission, transcripts):
+                                transition, emission, transcripts, sequences):
     emission = {
         'start': 'noncanonical',
         'S': emission['S'],
@@ -2376,11 +2519,29 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             riboseq_footprint_pileup,
             codon_map,
             transcript_normalization_factor,
-            is_pos_mappable
+            is_pos_mappable,
+            seq
         )
-        for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable
-        in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability)
+        for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable, seq
+        in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability, sequences)
     ]
+
+    # print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+    # for seq, d in zip(sequences, data):
+    #     old = set(d.get_candidate_cds_simple())
+    #     new = set(Data.get_all_ORFs(seq))
+    #     print(f'old: {len(old)}, new {len(new)}')
+    #     for one, two in zip(sorted(old), sorted(new)):
+    #         print(f'{one}\t{two}')
+    #     # print(sorted(old)[:10])
+    #     # print(sorted(new)[:10])
+    #     print(old == new)
+    #     old_set = {tuple(x) for x in old}
+    #     new_set = {tuple(x) for x in new}
+    #     print('old - new')
+    #     print(old_set - new_set)
+    #     print('new - old')
+    #     print(new_set - old_set)
 
     discovery_mode_results = list()
     orf_posteriors = list()
@@ -2398,24 +2559,34 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             for line in annot:
                 # record = line.strip().split('\t')
                 transcript_id = line.strip().split("\t")[-1].split(";")[1].strip().split()[1].replace('"', "")
-                strand = line.strip().split('\t')[4]
-                start_pos = int(line.strip().split('\t')[2]) - 1
+                offset = 1 if line.strip().split('\t')[1] != 'start_codon' else 0
+                strand = line.strip().split('\t')[4 + offset]
+                start_pos = int(line.strip().split('\t')[2 + offset]) - 1
                 # if strand.strip() == '+':
                 #     start_pos -= 1  # To convert it to 0-based half open
-                stop_pos = int(line.strip().split('\t')[3])
+                stop_pos = int(line.strip().split('\t')[3 + offset])
                 start_codon_annotated[transcript_id] = start_pos
                 stop_codon_annotated[transcript_id] = stop_pos
+            with open('/home1/08246/dfitzger/starts.pkl', 'wb') as out:
+                import pickle
+                pickle.dump(start_codon_annotated, out)
     except:
-        pass
+        print('There was a problem reading in the start codons')
+        print(line)
+        raise
 
     for transcript, riboseq_data in zip(transcripts, data):
         print('##### Looking at transcript {}'.format(i))
-        transcript_id = transcript.raw_attrs['reference_id']
+        transcript_id = transcript.raw_attrs.get('reference_id', transcript.raw_attrs.get('transcript_id'))
+        print('Raw Attrs')
+        print(transcript.raw_attrs)
+        print(transcript_id)
         i += 1
         riboseq_data.compute_log_probability(emission)
         state = State(riboseq_data.n_triplets)
         state._forward_update(data=riboseq_data, transition=transition)
         emission_errors = riboseq_data.compute_observed_pileup_deviation(emission, return_sorted=False)
+        emission_errors_normalized_tes = riboseq_data.compute_observed_pileup_deviation(emission, return_sorted=False, normalize_tes=True)
         ORF_EMISSION_ERROR_MEAN_WITH_UTR = 1
         ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR = 2
         ORF_EMISSION_ERROR_MEAN_ONLY_ORF = 3
@@ -2513,17 +2684,18 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
 
         # For each candidate CDS in this transcript
         # print('### Size of candidate cds: {}'.format(len(all_candidate_cds)))
-        if len(all_candidate_cds) == 0:
-            print('@@@@@@@@@@@@@@@ There is a 0')
-            print(transcript.chromosome)
-            print(transcript.start)
-            print(transcript.stop)
-            print('Size of raw candidate CDS')
-            print(len(riboseq_data.get_candidate_cds_simple()))
+        # if len(all_candidate_cds) == 0:
+        #     print('@@@@@@@@@@@@@@@ There is a 0')
+        #     print(transcript.chromosome)
+        #     print(transcript.start)
+        #     print(transcript.stop)
+        #     print('Size of raw candidate CDS')
+        #     print(len(riboseq_data.get_candidate_cds_simple()))
+        if transcript_id == 'ENST00000176195.3':
             print('Codon map')
             print(riboseq_data.codon_map)
-            print('@@@@@@@@@@@@@@@@@@@@@')
-        for candidate_cds, orf_emission_error in zip(all_candidate_cds, emission_errors):
+        #     print('@@@@@@@@@@@@@@@@@@@@@')
+        for candidate_cds, orf_emission_error, orf_emission_error_normalized_tes in zip(all_candidate_cds, emission_errors, emission_errors_normalized_tes):
             # print('Looking at candidate cds: {}'.format(candidate_cds))
             # if candidate_cds not in {
             #     CandidateCDS(start=1587148, stop=1593147, frame=0),
@@ -2600,6 +2772,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             candidate_cds_results = {
                 'definition': candidate_cds,
                 'triplet_states': triplet_states,
+                # 'start_codon_map': riboseq_data.codon_map['discovery_start'].tolist(),
                 'start_codon_genomic_position': start_genomic_pos,
                 'stop_codon_genomic_position': stop_genomic_pos,
                 'annotated_start': start_codon_annotated.get(transcript_id),
@@ -2616,8 +2789,6 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                     start_genomic_pos[2] - start_codon_annotated.get(transcript_id, -9999999),
                 ],
                 'transcript_id': transcript_id,
-                'transcript_id2': transcript.id,
-                'first_ten_in_dict': list(start_codon_annotated.keys())[:10],
                 'data_loglikelihood': {
                     # 'by_pos': triplet_likelihoods,
                     'sum': np.sum(triplet_likelihoods)
@@ -2647,7 +2818,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                 #     'sum': np.sum(triplet_state_likelihood_values)
                 # },
 
-                # For debug log
+                # For debug log emission_errors_normalized_tes
                 'orf_emission_error': {
                     'mean_rmse_with_UTR': orf_emission_error[ORF_EMISSION_ERROR_MEAN_WITH_UTR],
                     # 'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR],
@@ -2655,6 +2826,14 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                     # 'by_triplet_sse_only_ORF': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_ONLY_ORF]
                     # 'by_triplet_sse': by_triplet_sse,
                     'triplets_dropped_for_mappability': orf_emission_error[ORF_EMISSION_ERROR_TRIPLETS_DROPPED_FOR_MAPPABILITY]
+                },
+                'orf_emission_error_normalized_tes': {
+                    'mean_rmse_with_UTR': orf_emission_error_normalized_tes[ORF_EMISSION_ERROR_MEAN_WITH_UTR],
+                    # 'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR],
+                    'mean_rmse_only_ORF': orf_emission_error_normalized_tes[ORF_EMISSION_ERROR_MEAN_ONLY_ORF],
+                    # 'by_triplet_sse_only_ORF': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_ONLY_ORF]
+                    # 'by_triplet_sse': by_triplet_sse,
+                    'triplets_dropped_for_mappability': orf_emission_error_normalized_tes[ORF_EMISSION_ERROR_TRIPLETS_DROPPED_FOR_MAPPABILITY]
                 }
             }
             candidate_cds_likelihoods.append(candidate_cds_results)
