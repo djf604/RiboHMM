@@ -325,7 +325,7 @@ class Data:
         n_triplets = self.codon_map['start'].shape[0]
         state_seq = np.array(self.get_state_sequence(n_triplets, candidate_cds.start, candidate_cds.stop))
         try:
-            start_minimal_orf = int(np.where(state_seq == States.ST_5PRIME_UTS_PLUS)[0][0] - buffer)
+            start_minimal_orf = int(np.where(state_seq == States.ST_TIS)[0][0] - buffer)
         except:
             print('state_seq')
             print(state_seq)
@@ -414,8 +414,8 @@ class Data:
             for orf_i in range(n_orfs):
                 candidate_cds = candidate_cds_matrix[frame_i][orf_i]
                 try:
-                    start_minimal_orf = np.where(orf_state_matrix[frame_i][orf_i] == States.ST_5PRIME_UTS_PLUS)[0][0] - 1
-                    end_minimal_orf = np.where(orf_state_matrix[frame_i][orf_i] == States.ST_3PRIME_UTS_MINUS)[0][0] + 1
+                    start_minimal_orf = np.where(orf_state_matrix[frame_i][orf_i] == States.ST_TIS)[0][0]
+                    end_minimal_orf = np.where(orf_state_matrix[frame_i][orf_i] == States.ST_3PRIME_UTS_MINUS)[0][0]
                 except IndexError:
                     print('Minimal ORF could not be found for {}'.format(candidate_cds))
                     continue
