@@ -5,11 +5,13 @@ import json
 import datetime
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, wait, ThreadPoolExecutor
+from typing import Dict, List
 
 import numpy as np
 
 from ribohmm import core, utils
-from ribohmm.core import seq as seq
+from ribohmm.core.seq import RnaSequence
+from ribohmm.contrib.load_data import Transcript
 from ribohmm.core.ribohmm import infer_coding_sequence, discovery_mode_data_logprob, state_matrix_qa, compare_raw_seq_to_codon_map
 
 import logging
@@ -110,7 +112,7 @@ def write_inferred_cds(transcript, state, frame, rna_sequence):
     return towrite
 
 
-def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, rnaseq_track,
+def infer_on_transcripts(primary_strand, transcripts: List[Transcript], ribo_track, genome_track, rnaseq_track,
                          mappability_tabix_prefix, infer_algorithm, model_params):
     logger.info('!!!!!! Starting infer_on_transcripts()')
     if primary_strand not in {'+', '-'}:
@@ -142,10 +144,10 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
     if len(transcripts) > 0:
         codon_maps = list()
         logger.info('Loading RNA sequences')
-        rna_sequences = genome_track.get_sequence(transcripts)
+        rna_sequences = genome_track.get_sequence(transcripts, add_seq_to_transcript=True)
         logger.info('Setting codon flags')
         for rna_sequence in rna_sequences:
-            sequence = seq.RnaSequence(rna_sequence)
+            sequence = RnaSequence(rna_sequence)
             codon_maps.append(sequence.mark_codons())
 
         # load footprint count data in transcripts
@@ -246,7 +248,7 @@ def infer_on_transcripts(primary_strand, transcripts, ribo_track, genome_track, 
 
 def infer_CDS(
     model_file,
-    transcript_models,
+    transcript_models: Dict[str, Transcript],
     genome_track,
     mappability_tabix_prefix,
     ribo_track,
@@ -270,7 +272,7 @@ def infer_CDS(
     model_params = json.load(open(model_file))
 
     # load transcripts
-    transcript_names = list(transcript_models.keys())[:N_TRANSCRIPTS]
+    transcript_names: List[str] = list(transcript_models.keys())[:N_TRANSCRIPTS]
     print(f'!!!!! Size of transcripts: {len(transcript_names)}')
     logger.info('Number of transcripts: {}'.format(len(transcript_names)))
 
@@ -283,6 +285,20 @@ def infer_CDS(
                "protein_seq", "num_exons", "exon_sizes", "exon_starts", "frame"]
     handle.write(" ".join(map(str, towrite))+'\n')
 
+    from ribohmm.contrib.load_data import read_annotations, Transcript
+    # genome_track.get_sequence(list(transcript_models.values()), add_seq_to_transcript=True)
+    # start_codon_annotations, stop_codon_annotations = read_annotations()
+    # print('********** We are computing all ***********')
+    # Transcript.compute_all(
+    #     [t for t in transcript_models.values()],
+    #     start_annotations=start_codon_annotations,
+    #     stop_annotations=stop_codon_annotations
+    # )
+    # n_not_found = sum([1 - int(t.annotated_ORF_found) for t in transcript_models.values()])
+    # total_transcripts = len(transcript_models.values())
+    # print('{}/{} not found'.format(n_not_found, total_transcripts))
+
+
     # Process 1000 transcripts at a time
     debug_metadata = defaultdict(list)
     records_to_write = list()
@@ -290,8 +306,8 @@ def infer_CDS(
     with ProcessPoolExecutor(max_workers=max(1, n_procs)) as executor:
         for n in range(int(np.ceil(len(transcript_names)/n_transcripts_per_proc))):
             logger.info('Processing transcripts {}-{}'.format(n * n_transcripts_per_proc, (n + 1) * n_transcripts_per_proc))
-            tnames = transcript_names[n*n_transcripts_per_proc:(n+1)*n_transcripts_per_proc]
-            transcripts_chunk = [transcript_models[name] for name in tnames]
+            tnames: List[str] = transcript_names[n*n_transcripts_per_proc:(n+1)*n_transcripts_per_proc]
+            transcripts_chunk: List[Transcript] = [transcript_models[name] for name in tnames]
 
             for infer_strand in ['+', '-']:
                 futs.append(executor.submit(
@@ -335,6 +351,40 @@ def infer_CDS(
     # Some debugging for the debug_metadata object
     debug_object = serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']})
     find_start_codon(debug_object)
+
+    # from ribohmm.contrib.load_data import read_annotations, Transcript
+    all_transcripts: List[Transcript] = [t for t in transcript_models.values()]
+    genome_track.get_sequence(all_transcripts, add_seq_to_transcript=True)
+    start_codon_annotations, stop_codon_annotations = read_annotations()
+    print('********** We are finding problematic transcripts ***********')
+    Transcript.compute_all(
+        all_transcripts,
+        start_annotations=start_codon_annotations,
+        stop_annotations=stop_codon_annotations
+    )
+
+    # Analyze the results
+    n_transcripts = len(all_transcripts)
+    missing_annotation_transcripts = [
+        t for t in all_transcripts
+        if not t.annotated_ORF_found
+    ]
+    n_missing_annotation_transcripts = len(missing_annotation_transcripts)
+
+    print('{}/{} annotated stat pos not found'.format(n_missing_annotation_transcripts, n_transcripts))
+    for t in missing_annotation_transcripts:
+        print('Name: {} | {} | {} | {} | {}'.format(t.id, t.ref_gene_id, t.ref_transcript_id,
+                                                    t.raw_attrs.get('reference_id'), t.raw_attrs.get('transcript_id')))
+        print('Exons:')
+        print([(e[0] + t.start, e[1] + t.start) for e in t.exons])
+        print('Annotated start pos: {}'.format(t.annotated_start_pos))
+        print('Closest ORF: {}'.format(t.closest_orf))
+        print('**************************************')
+
+
+    n_not_found = sum([1 - int(t.annotated_ORF_found) for t in transcript_models.values()])
+    total_transcripts = len(transcript_models.values())
+    print('{}/{} not found'.format(n_not_found, total_transcripts))
 
     logger.info('Closing handles')
     handle.close()

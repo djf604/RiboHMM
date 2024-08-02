@@ -1,6 +1,9 @@
 import os
 import hashlib
 import json
+import sys
+from typing import Dict, List, Union
+
 import numpy as np
 import pandas as pd
 import pysam
@@ -27,7 +30,7 @@ class Genome():
         self._map_handles = None
         self._read_lengths = read_lengths
 
-    def get_sequence(self, transcripts):
+    def get_sequence(self, transcripts: List['Transcript'], add_seq_to_transcript=False):
         """
         :param transcripts:
         :return:
@@ -46,13 +49,15 @@ class Genome():
 
             # get DNA sequence
             seq = self._seq_handle.fetch(transcript.chromosome, transcript.start, transcript.stop).upper()
+            if add_seq_to_transcript:
+                transcript.raw_seq = seq
             # print('transcript stop minus start: {}'.format(transcript.stop - transcript.start))
             # print('transcript stop minus start plus 1: {}'.format(transcript.stop - transcript.start + 1))
             # print('len of seq: {}'.format(len(seq)))
 
             # get DNA sequence of transcript
             # reverse complement, if necessary
-            if transcript.strand=="-":
+            if transcript.strand == '-':
                 seq = seq[::-1]
                 seq = ''.join(np.array(list(seq))[transcript.mask].tolist())
                 seq = utils.make_complement(seq)
@@ -60,8 +65,11 @@ class Genome():
                 seq = ''.join(np.array(list(seq))[transcript.mask].tolist())
 
             # get RNA sequence
-            seq = ''.join(['U' if s=='T' else s for s in seq])
+            seq = ''.join(['U' if s == 'T' else s for s in seq])
             sequences.append(seq)
+
+            if add_seq_to_transcript:
+                transcript.transcribed_seq = seq
             
         return sequences
 
@@ -330,12 +338,33 @@ class RnaSeq():
             self._counts_tbx.close()
 
 
+class ORF:
+    def __init__(self, frame=None, start_triplet=None, stop_triplet=None, start_pos=None, stop_pos=None):
+        self.frame = frame
+        self.start_triplet = start_triplet
+        self.stop_triplet = stop_triplet
+        self.start_pos = start_pos
+        self.stop_pos = stop_pos
+
+        # Legacy values to match the namedtuple CandidateCDS
+        self.start = self.start_triplet
+        self.stop = self.stop_triplet
+
+    def __str__(self):
+        return 'Frame: {} | Start: {}/{} | Stop: {}/{}'.format(
+            self.frame,
+            self.start_triplet, self.start_pos,
+            self.stop_triplet, self.stop_pos
+        )
+
+
 class Transcript():
     def __init__(self, chrom, start, stop, strand, attrs):
         self.chromosome = chrom if chrom.startswith('c') else 'chr{}'.format(chrom)
         self.start = int(start)
         self.stop = int(stop)
         self.raw_attrs = attrs
+        self.mask = None
 
         self.strand = strand if strand in {'+', '-'} else '.'
 
@@ -375,6 +404,166 @@ class Transcript():
         self.ref_transcript_id = attrs.get('reference_id')
         self.ref_gene_id = attrs.get('ref_gene_id')
         self.genename = attrs.get('ref_gene_name')
+
+        # For annotated start/stop debugging
+        self.raw_seq = None
+        self.raw_seq_positions = np.arange(self.start, self.stop)[::-1 if self.strand == '-' else 1]
+        self.transcribed_seq = None
+        self.transcribed_seq_positions = None
+        self.annotated_start_pos = None
+        self.annotated_stop_pos = None
+        self.orfs: Union[List[ORF], None] = None
+        # Outcomes
+        self.annotated_ORF_found = False
+        self.closest_orf = None
+        self.closest_distance = sys.maxsize
+
+        # For core RiboHMM
+        self.data_obj = None
+        self.state_obj = None
+
+    @staticmethod
+    def compute_all(transcripts: List['Transcript'], start_annotations: dict, stop_annotations: dict):
+        # print('len transcripts: {}'.format(len(transcripts)))
+        Transcript.populate_annotated_start_stop(transcripts, start_annotations, stop_annotations)
+        Transcript.populate_transcribed_seq_positions(transcripts)
+        for t in transcripts:
+            try:
+                t.compute_all_ORFs()
+                t.compute_start_stop_pos()
+                t.analyze_ORFs()
+            except Exception as e:
+                print('Transcript {} could not be analyzed: {}'.format(t.id, str(e)))
+
+
+
+    def analyze_ORFs(self):
+        # TODO Need to find the closest ORF
+        # print('Transcript is: {}'.format(self.id))
+        # print('Annotated start: {}'.format(self.annotated_start_pos))
+        annotated_triplet_i = 0 if self.strand == '+' else 2
+        # closest_orf, closest_distance = None, sys.maxsize
+        for orf_i, orf in enumerate(self.orfs):
+            if orf.start_pos[annotated_triplet_i] == self.annotated_start_pos:
+                self.annotated_ORF_found = True
+                self.closest_orf = orf
+                break
+            if abs(orf.start_pos[annotated_triplet_i] - self.annotated_start_pos) < abs(self.closest_distance):
+                self.closest_orf = orf
+                self.closest_distance = orf.start_pos[annotated_triplet_i] - self.annotated_start_pos
+
+        # else:
+        #     print('It was never found!')
+
+    def compute_start_stop_pos(self):
+        if self.orfs is None:
+            raise ValueError('self.orfs cannot be None')
+
+        for orf in self.orfs:
+            if self.strand == '-':
+                exonic_positions = np.arange(self.start, self.stop)[::-1][self.mask]
+                # exonic_positions = np.arange(self.start, self.stop)[self.mask][::-1]
+            else:
+                exonic_positions = np.arange(self.start, self.stop)[self.mask]
+            # Remove initial bases to set the frame
+            for _ in range(orf.frame):
+                exonic_positions = np.delete(exonic_positions, 0)
+            # If needed, add placeholder values to make sequence divisible by 3
+            if len(exonic_positions) % 3 in {1, 2}:
+                exonic_positions = np.append(exonic_positions, [-2] * (3 - (len(exonic_positions) % 3)))
+
+            # Chunk exonic positions into triplets
+            # triplet_genomic_positions = np.array(np.split(exonic_positions, 3))
+            triplet_genomic_positions = exonic_positions.reshape(-1, 3)
+            # TODO This is splitting into 3 sets of even size, I want however many chunks all of size 3
+
+            # Get genomic position of start and stop codons
+            orf.start_pos = list(triplet_genomic_positions[orf.start_triplet])
+            orf.stop_pos = list(triplet_genomic_positions[orf.stop_triplet])
+
+    def compute_all_ORFs(self):
+        """
+        This method does not use the codon map, rather it looks in the raw sequence.
+
+        Returns:
+        """
+        if self.transcribed_seq is None:
+            raise ValueError('populate_transcribed_seq_positions() must be called before compute_all_ORFs()')
+
+        STARTCODONS = {
+            'AUG', 'CUG', 'GUG', 'UUG', 'AAG',
+            'ACG', 'AGG', 'AUA', 'AUC', 'AUU'
+        }
+        STOPCODONS = {'UAA', 'UAG', 'UGA'}
+        N_FRAMES = 3
+        # n_triplets = local_start_codon_map.shape[0]
+        # n_triplets = len(seq)
+        candidate_cds = list()
+
+        def codon(pos_i, seq):
+            return seq[pos_i * 3:(pos_i + 1) * 3]
+
+        for frame_i in range(N_FRAMES):
+            frame_seq = self.transcribed_seq[frame_i:]
+            n_triplets = int(len(frame_seq) / 3)
+            for pos_i in range(n_triplets):
+                if codon(pos_i, frame_seq) in STARTCODONS:
+                    for stop_i in range(pos_i + 1, n_triplets):
+                        if codon(stop_i, frame_seq) in STOPCODONS:
+                            candidate_cds.append(ORF(
+                                frame=frame_i,
+                                start_triplet=pos_i,
+                                stop_triplet=stop_i
+                            ))
+                            # candidate_cds.append(utils.CandidateCDS(
+                            #     frame=frame_i,
+                            #     start=pos_i,
+                            #     stop=stop_i
+                            # ))
+                            break
+
+        self.orfs = candidate_cds
+
+    @staticmethod
+    def populate_transcribed_seq_positions(transcripts: List['Transcript']):
+        for transcript in transcripts:
+            if transcript.transcribed_seq is not None and transcript.mask is not None:
+                transcript.transcribed_seq_positions = transcript.raw_seq_positions[transcript.mask]
+
+    @staticmethod
+    def populate_annotated_start_stop(transcripts: List['Transcript'], start_annotations: dict, stop_annotations: dict):
+        for t in transcripts:
+            transcript_id = t.raw_attrs.get('reference_id', t.raw_attrs.get('transcript_id'))
+            t.annotated_start_pos = start_annotations.get(transcript_id)
+            t.annotated_stop_pos = stop_annotations.get(transcript_id)
+
+
+        start_codon_annotated = dict()
+        stop_codon_annotated = dict()
+        try:
+            # with open('/work/05546/siddisis/shareDirs/tORF/riboHMM/example.339.chr11.CCDS.gencode.v19.startCodon.annotation.txt') as annot:
+            with open('/home1/08246/dfitzger/riboHMM_chr11_example_YRI_Data/annotated_start_codons.gtf') as annot:
+                for line in annot:
+                    # record = line.strip().split('\t')
+                    transcript_id = line.strip().split("\t")[-1].split(";")[1].strip().split()[1].replace('"', "")
+                    offset = 1 if line.strip().split('\t')[1] != 'start_codon' else 0
+                    strand = line.strip().split('\t')[4 + offset]
+                    start_pos = int(line.strip().split('\t')[2 + offset]) - 1
+                    # if strand.strip() == '+':
+                    #     start_pos -= 1  # To convert it to 0-based half open
+                    stop_pos = int(line.strip().split('\t')[3 + offset])
+                    start_codon_annotated[transcript_id] = start_pos
+                    stop_codon_annotated[transcript_id] = stop_pos
+                with open('/home1/08246/dfitzger/starts.pkl', 'wb') as out:
+                    import pickle
+                    pickle.dump(start_codon_annotated, out)
+        except:
+            print('There was a problem reading in the start codons')
+            print(line)
+            raise
+
+    def triplet_i_to_base_pos(self, frame_i, triplet_i):
+        return self.transcribed_seq_positions[triplet_i * 3 + frame_i]
 
     def add_exon(self, start, stop):
         self.exons.append((int(start), int(stop)))
@@ -419,8 +608,11 @@ class Transcript():
             # no exons for transcript; remove
             raise ValueError
 
+    def get_seq_slice(self):
+        pass
 
-def load_gtf(filename, use_cache=True, cache_dir=None):
+
+def load_gtf(filename, use_cache=True, cache_dir=None) -> Dict[str, Transcript]:
     """
     Returns a dictionary of transcript_id::str -> Transcript
     :param filename:
@@ -548,3 +740,28 @@ def load_gtf(filename, use_cache=True, cache_dir=None):
             pass  # Silently fail, this is not an essential feature
 
     return transcripts
+
+
+def read_annotations(annotations_path=None):
+    annotations_path = annotations_path or '/home1/08246/dfitzger/riboHMM_chr11_example_YRI_Data/annotated_start_codons.gtf'
+    start_codon_annotated = dict()
+    stop_codon_annotated = dict()
+    try:
+        with open(annotations_path) as annot:
+            for line in annot:
+                # record = line.strip().split('\t')
+                transcript_id = line.strip().split("\t")[-1].split(";")[1].strip().split()[1].replace('"', "")
+                offset = 1 if line.strip().split('\t')[1] != 'start_codon' else 0
+                strand = line.strip().split('\t')[4 + offset]
+                start_pos = int(line.strip().split('\t')[2 + offset]) - 1
+                # if strand.strip() == '+':
+                #     start_pos -= 1  # To convert it to 0-based half open
+                stop_pos = int(line.strip().split('\t')[3 + offset])
+                start_codon_annotated[transcript_id] = start_pos
+                stop_codon_annotated[transcript_id] = stop_pos
+    except:
+        print('There was a problem reading in the start codons')
+        print(line)
+        raise
+
+    return start_codon_annotated, stop_codon_annotated
