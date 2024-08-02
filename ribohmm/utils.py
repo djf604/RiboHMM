@@ -2,9 +2,12 @@ import os
 import numpy as np
 import re
 from functools import reduce
+from collections import namedtuple
 import time
 
 # READ_LENGTHS = [28, 29, 30, 31]
+CandidateCDS = namedtuple('CandidateCDS', 'frame start stop')
+
 STARTCODONS = [
     'AUG', 'CUG', 'GUG', 'UUG', 'AAG',
     'ACG', 'AGG', 'AUA', 'AUC', 'AUU'

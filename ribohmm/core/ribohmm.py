@@ -2400,6 +2400,16 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         }
     }
 
+    # from ribohmm.contrib.load_data import read_annotations, Transcript
+    # start_codon_annotations, stop_codon_annotations = read_annotations()
+    # print('********** We are computing all ***********')
+    # Transcript.compute_all(
+    #     transcripts,
+    #     start_annotations=start_codon_annotations,
+    #     stop_annotations=stop_codon_annotations
+    # )
+    # print('********** We are testing ***********')
+    # print(transcripts[0].orfs[0])
 
 
     """

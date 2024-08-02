@@ -191,7 +191,7 @@ def execute_ribohmm(args, learn=True, infer=True):
     logger.debug('inflate_genome_track:{}'.format(time.time() - start))
     print('Inflating transcript models ')
     start = time.time()
-    gtf_model = load_data.load_gtf(
+    transcript_models_dict: dict = load_data.load_gtf(
         args['transcriptome_gtf'],
         use_cache=not args['disable_cache'],
         cache_dir=args['cache_dir']
@@ -213,7 +213,7 @@ def execute_ribohmm(args, learn=True, infer=True):
         serialized_model = learn_model_parameters(
             genome_track=genome_track,
             transcripts=select_transcripts(
-                transcript_models_dict=gtf_model,
+                transcript_models_dict=transcript_models_dict,
                 ribo_track=ribo_track,
                 batch_size=args['batch_size']
             ),
@@ -236,7 +236,7 @@ def execute_ribohmm(args, learn=True, infer=True):
         model_file = args.get('model_parameters') or os.path.join(args['output_directory'], 'model_parameters.json')
         infer_CDS(
             model_file=model_file,
-            transcript_models=gtf_model,
+            transcript_models=transcript_models_dict,
             genome_track=genome_track,
             mappability_tabix_prefix=args['mappability_tabix_prefix'],
             ribo_track=ribo_track,
