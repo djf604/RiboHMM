@@ -339,22 +339,25 @@ class RnaSeq():
 
 
 class ORF:
-    def __init__(self, frame=None, start_triplet=None, stop_triplet=None, start_pos=None, stop_pos=None):
+    def __init__(self, frame=None, start_triplet=None, stop_triplet=None, start_pos=None, stop_pos=None,
+                 start_seq='', stop_seq=''):
         self.frame = frame
         self.start_triplet = start_triplet
         self.stop_triplet = stop_triplet
         self.start_pos = start_pos
         self.stop_pos = stop_pos
+        self.start_seq = start_seq
+        self.stop_seq = stop_seq
 
         # Legacy values to match the namedtuple CandidateCDS
         self.start = self.start_triplet
         self.stop = self.stop_triplet
 
     def __str__(self):
-        return 'Frame: {} | Start: {}/{} | Stop: {}/{}'.format(
+        return 'Frame: {} | Start: {}/{}/{} | Stop: {}/{}/{}'.format(
             self.frame,
-            self.start_triplet, self.start_pos,
-            self.stop_triplet, self.stop_pos
+            self.start_triplet, self.start_pos, self.start_seq,
+            self.stop_triplet, self.stop_pos, self.stop_seq
         )
 
 
@@ -435,6 +438,35 @@ class Transcript():
             except Exception as e:
                 print('Transcript {} could not be analyzed: {}'.format(t.id, str(e)))
 
+    def get_exonic_sequence(self, genome_track: Genome, formatted=False):
+        # if self.strand == '-':
+        #     exonic_positions = np.arange(self.start, self.stop)[::-1][self.mask]
+        # else:
+        #     exonic_positions = np.arange(self.start, self.stop)[self.mask]
+
+        absolute_exons = [(e[0] + self.start, e[1] + self.start) for e in self.exons]
+        exon_seqs = list()
+        for exon in absolute_exons:
+            exon_seq = genome_track._seq_handle.fetch(
+                self.chromosome,
+                exon[0],
+                exon[1]
+            ).upper()[::(-1 if self.strand == '-' else 1)]
+            if self.strand == '-':
+                exon_seq = utils.make_complement(exon_seq[::-1])
+            exon_seqs.append(exon_seq)
+
+        if not formatted:
+            return ''.join(exon_seqs)
+
+        formatted_exon_seqs = list()
+        for exon_seq, exon_info in zip(exon_seqs, absolute_exons):
+            # exon_start, exon_stop = int(exon_seq[0]), int(exon_seq)
+            for pos in range(exon_info[0], exon_info[1], 3):
+                seq = exon_seq[(pos - exon_info[0]):(pos - exon_info[0] + 3)]
+                formatted_exon_seqs.append('{} {}'.format(pos, seq))
+
+        return '\n'.join(formatted_exon_seqs)
 
 
     def analyze_ORFs(self):
@@ -513,13 +545,10 @@ class Transcript():
                             candidate_cds.append(ORF(
                                 frame=frame_i,
                                 start_triplet=pos_i,
-                                stop_triplet=stop_i
+                                stop_triplet=stop_i,
+                                start_seq=codon(pos_i, frame_seq),
+                                stop_seq=codon(stop_i, frame_seq)
                             ))
-                            # candidate_cds.append(utils.CandidateCDS(
-                            #     frame=frame_i,
-                            #     start=pos_i,
-                            #     stop=stop_i
-                            # ))
                             break
 
         self.orfs = candidate_cds
