@@ -375,10 +375,15 @@ def infer_CDS(
     for t in missing_annotation_transcripts:
         print('Name: {} | {} | {} | {} | {}'.format(t.id, t.ref_gene_id, t.ref_transcript_id,
                                                     t.raw_attrs.get('reference_id'), t.raw_attrs.get('transcript_id')))
+        print('{}:{}:{}'.format(t.chromosome, t.start, t.stop))
         print('Exons:')
         print([(e[0] + t.start, e[1] + t.start) for e in t.exons])
         print('Annotated start pos: {}'.format(t.annotated_start_pos))
         print('Closest ORF: {}'.format(t.closest_orf))
+        print('Transcript strand: {}'.format(t.strand))
+        print(t.get_exonic_sequence(genome_track=genome_track, formatted=True))
+        for orf in t.orfs:
+            print(orf)
         print('**************************************')
 
 
