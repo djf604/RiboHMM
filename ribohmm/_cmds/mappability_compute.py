@@ -34,6 +34,8 @@ def main(args=None):
 
     # file names and handles
     map_file = args['output_tabix']
+    if not map_file.endswith('.bed'):
+        map_file = f'{map_file}.bed'
     map_handle = open(map_file, 'w')
 
     # Check for index alongside BAM file, if not then create
