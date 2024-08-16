@@ -72,7 +72,7 @@ class RnaSequence(object):
         n_triplets = int(len(self.sequence) / 3)
 
         # -1 will denote a triplet which does not exist for a frame, so we start with all -1
-        start_codon_map = np.ones(shape=(n_triplets, 3), dtype=np.uint8) * -1
+        start_codon_map = np.ones(shape=(n_triplets, 3), dtype=np.int16) * -1
         for frame_i in range(3):
             frame_seq = self.sequence[frame_i:]
             for triplet_i in range(int(len(frame_seq) / 3)):
@@ -86,7 +86,7 @@ class RnaSequence(object):
         n_triplets = int(len(self.sequence) / 3)
 
         # -1 will denote a triplet which does not exist for a frame, so we start with all -1
-        stop_codon_map = np.ones(shape=(n_triplets, 3), dtype=np.uint8) * -1
+        stop_codon_map = np.ones(shape=(n_triplets, 3), dtype=np.int16) * -1
         for frame_i in range(3):
             frame_seq = self.sequence[frame_i:]
             for triplet_i in range(int(len(frame_seq) / 3)):
