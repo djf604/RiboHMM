@@ -566,31 +566,6 @@ class Transcript():
             t.annotated_start_pos = start_annotations.get(transcript_id)
             t.annotated_stop_pos = stop_annotations.get(transcript_id)
 
-
-        start_codon_annotated = dict()
-        stop_codon_annotated = dict()
-        try:
-            # with open('/work/05546/siddisis/shareDirs/tORF/riboHMM/example.339.chr11.CCDS.gencode.v19.startCodon.annotation.txt') as annot:
-            with open('/home1/08246/dfitzger/riboHMM_chr11_example_YRI_Data/annotated_start_codons.gtf') as annot:
-                for line in annot:
-                    # record = line.strip().split('\t')
-                    transcript_id = line.strip().split("\t")[-1].split(";")[1].strip().split()[1].replace('"', "")
-                    offset = 1 if line.strip().split('\t')[1] != 'start_codon' else 0
-                    strand = line.strip().split('\t')[4 + offset]
-                    start_pos = int(line.strip().split('\t')[2 + offset]) - 1
-                    # if strand.strip() == '+':
-                    #     start_pos -= 1  # To convert it to 0-based half open
-                    stop_pos = int(line.strip().split('\t')[3 + offset])
-                    start_codon_annotated[transcript_id] = start_pos
-                    stop_codon_annotated[transcript_id] = stop_pos
-                with open('/home1/08246/dfitzger/starts.pkl', 'wb') as out:
-                    import pickle
-                    pickle.dump(start_codon_annotated, out)
-        except:
-            print('There was a problem reading in the start codons')
-            print(line)
-            raise
-
     def triplet_i_to_base_pos(self, frame_i, triplet_i):
         return self.transcribed_seq_positions[triplet_i * 3 + frame_i]
 
@@ -775,22 +750,24 @@ def read_annotations(annotations_path=None):
     annotations_path = annotations_path or '/home1/08246/dfitzger/riboHMM_chr11_example_YRI_Data/annotated_start_codons.gtf'
     start_codon_annotated = dict()
     stop_codon_annotated = dict()
+
     try:
         with open(annotations_path) as annot:
             for line in annot:
-                # record = line.strip().split('\t')
-                transcript_id = line.strip().split("\t")[-1].split(";")[1].strip().split()[1].replace('"', "")
-                offset = 1 if line.strip().split('\t')[1] != 'start_codon' else 0
-                strand = line.strip().split('\t')[4 + offset]
-                start_pos = int(line.strip().split('\t')[2 + offset]) - 1
-                # if strand.strip() == '+':
-                #     start_pos -= 1  # To convert it to 0-based half open
-                stop_pos = int(line.strip().split('\t')[3 + offset])
-                start_codon_annotated[transcript_id] = start_pos
-                stop_codon_annotated[transcript_id] = stop_pos
+                try:
+                    # record = line.strip().split('\t')
+                    transcript_id = line.strip().split("\t")[-1].split(";")[1].strip().split()[1].replace('"', "")
+                    offset = 1 if line.strip().split('\t')[1] != 'start_codon' else 0
+                    strand = line.strip().split('\t')[4 + offset]
+                    start_pos = int(line.strip().split('\t')[2 + offset]) - 1
+                    # if strand.strip() == '+':
+                    #     start_pos -= 1  # To convert it to 0-based half open
+                    stop_pos = int(line.strip().split('\t')[3 + offset])
+                    start_codon_annotated[transcript_id] = start_pos
+                    stop_codon_annotated[transcript_id] = stop_pos
+                except:
+                    print('Could not process line: {}'.format(line))
     except:
-        print('There was a problem reading in the start codons')
-        print(line)
-        raise
+        print('Could not open file: {}'.format(annotations_path))
 
     return start_codon_annotated, stop_codon_annotated
