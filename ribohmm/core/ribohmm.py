@@ -60,7 +60,7 @@ def outsum(arr):
 
 
 class Data:
-    def __init__(self, riboseq_pileup, codon_map, transcript_normalization_factor, is_pos_mappable, seq):
+    def __init__(self, riboseq_pileup, codon_map, transcript_normalization_factor, is_pos_mappable, seq=''):
         """Instantiates a data object for a transcript and populates it 
         with observed ribosome-profiling data, expression RPKM as its
         scaling factor, and the DNA sequence of each triplet in the 
@@ -2561,29 +2561,8 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
     i = 0
 
     # Just for debugging purposes
-    start_codon_annotated = dict()
-    stop_codon_annotated = dict()
-    try:
-        # with open('/work/05546/siddisis/shareDirs/tORF/riboHMM/example.339.chr11.CCDS.gencode.v19.startCodon.annotation.txt') as annot:
-        with open('/home1/08246/dfitzger/riboHMM_chr11_example_YRI_Data/annotated_start_codons.gtf') as annot:
-            for line in annot:
-                # record = line.strip().split('\t')
-                transcript_id = line.strip().split("\t")[-1].split(";")[1].strip().split()[1].replace('"', "")
-                offset = 1 if line.strip().split('\t')[1] != 'start_codon' else 0
-                strand = line.strip().split('\t')[4 + offset]
-                start_pos = int(line.strip().split('\t')[2 + offset]) - 1
-                # if strand.strip() == '+':
-                #     start_pos -= 1  # To convert it to 0-based half open
-                stop_pos = int(line.strip().split('\t')[3 + offset])
-                start_codon_annotated[transcript_id] = start_pos
-                stop_codon_annotated[transcript_id] = stop_pos
-            with open('/home1/08246/dfitzger/starts.pkl', 'wb') as out:
-                import pickle
-                pickle.dump(start_codon_annotated, out)
-    except:
-        print('There was a problem reading in the start codons')
-        print(line)
-        raise
+    from ribohmm.contrib.load_data import read_annotations
+    start_codon_annotated, stop_codon_annotated = read_annotations()
 
     for transcript, riboseq_data in zip(transcripts, data):
         print('##### Looking at transcript {}'.format(i))
