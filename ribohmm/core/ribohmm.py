@@ -642,8 +642,10 @@ class Data:
 
         """
         # return self.get_all_ORFs(self.seq)
-        local_start_codon_map = self.codon_map['discovery_start'].copy()
-        local_stop_codon_map = self.codon_map['discovery_stop'].copy()
+        # local_start_codon_map = self.codon_map['discovery_start'].copy()
+        local_start_codon_map = self.codon_map.get('discovery_start', self.codon_map['start']).copy()
+        local_stop_codon_map = self.codon_map.get('discovery_stop', self.codon_map['stop']).copy()
+        # local_stop_codon_map = self.codon_map['discovery_stop'].copy()
 
         if shifted_forward:
             local_start_codon_map = np.roll(local_start_codon_map, shift=1, axis=0)
