@@ -642,77 +642,65 @@ def load_gtf(filename, use_cache=True, cache_dir=None) -> Dict[str, Transcript]:
         except:
             pass  # Silently fail, the cache does not exist
 
+    # Read GTF file
     transcripts, exon_cache = dict(), list()
-    handle = open(filename, "r")
-
     print('Reading in GTF file')
-    for line in handle:
-        # remove comments
-        if line.startswith('#'):
-            continue
+    with open(filename, "r") as handle:
+        for line in handle:
+            # remove comments
+            if line.startswith('#'):
+                continue
 
-        # read data
-        """
-        This puts into attr a dictionary of GTF attributes
-        ex.
-        ['gene_id "ENSG00000223972.4"',
-         ' transcript_id "ENSG00000223972.4"',
-         ' gene_type "pseudogene"',
-         ' gene_status "KNOWN"',
-         ' gene_name "DDX11L1"',
-         ' transcript_type "pseudogene"',
-         ' transcript_status "KNOWN"',
-         ' transcript_name "DDX11L1"',
-         ' level 2',
-         ' havana_gene "OTTHUMG00000000961.2"']
-        """
-        gtf_record = line.strip().split('\t')
+            # read data
+            """
+            This puts into attr a dictionary of GTF attributes
+            ex.
+            ['gene_id "ENSG00000223972.4"',
+             ' transcript_id "ENSG00000223972.4"',
+             ' gene_type "pseudogene"',
+             ' gene_status "KNOWN"',
+             ' gene_name "DDX11L1"',
+             ' transcript_type "pseudogene"',
+             ' transcript_status "KNOWN"',
+             ' transcript_name "DDX11L1"',
+             ' level 2',
+             ' havana_gene "OTTHUMG00000000961.2"']
+            """
+            gtf_record = line.strip().split('\t')
+            attrs = dict([
+                (ln.split()[0], eval(ln.split()[1]))
+                for ln in gtf_record[8].split(';')[:-1]
+            ])
 
-        """
-        I think the eval() here is to get rid of surrounding double quotes
-        ex. '"ENSG00000223972.4"' => 'ENSG00000223972.4'
-        """
-        attrs = dict([
-            (ln.split()[0], eval(ln.split()[1]))
-            for ln in gtf_record[8].split(';')[:-1]
-        ])
+            chrom = gtf_record[0] if gtf_record[0].startswith('c') else 'chr{}'.format(gtf_record[0])
+            start = int(gtf_record[3]) - 1
+            stop = int(gtf_record[4])
+            strand = gtf_record[6].strip()
 
-        # # identify chromosome of the transcript
-        # if data[0].startswith('c'):
-        #     chrom = data[0]
-        # else:
-        #     chrom = 'chr%s'%data[0]
-        # data[0] = chrom
-        chrom = gtf_record[0] if gtf_record[0].startswith('c') else 'chr{}'.format(gtf_record[0])
-        start = int(gtf_record[3]) - 1
-        stop = int(gtf_record[4])
-        strand = gtf_record[6].strip()
-
-        transcript_id = attrs.get('transcript_id')
-        if gtf_record[2].strip() == 'exon':
-            if transcript_id in transcripts:
-                # TODO I think it would be a good idea to have an 'exon cache' and add exons after all main transcript
-                # records have been added
-                transcripts[transcript_id].add_exon(start, stop)
-            else:
-                exon_cache.append((transcript_id, start, stop))
-        elif transcript_id not in transcripts and gtf_record[2].strip() == 'transcript':
+            transcript_id = attrs.get('transcript_id')
             # If the strand is known add only that strand, but if it is unknown add both
             if strand in {'+', '-'}:
                 add_strands = [(strand, transcript_id)]
             else:
                 add_strands = [('+', f'{transcript_id}-pos-strand'), ('-', f'{transcript_id}-neg-strand')]
-            for add_strand, add_transcript_id in add_strands:
-                transcripts[add_transcript_id] = Transcript(
-                    chrom, start, stop,
-                    strand=add_strand,
-                    attrs=attrs
-                )
 
-                
-    handle.close()
+            # For each strand of this transcript, add a Transcript or exon to a Transcript
+            for add_strand, add_transcript_id in add_strands:
+                if gtf_record[2].strip() == 'exon':
+                    if add_transcript_id in transcripts:
+                        transcripts[add_transcript_id].add_exon(start, stop)
+                    else:
+                        exon_cache.append((add_transcript_id, start, stop))
+                elif add_transcript_id not in transcripts and gtf_record[2].strip() == 'transcript':
+                    transcripts[add_transcript_id] = Transcript(
+                        chrom, start, stop,
+                        strand=add_strand,
+                        attrs=attrs
+                    )
 
     # Apply exon cache
+    print('Exon cache:')
+    print(exon_cache)
     for exon_spec in exon_cache:
         transcript_id, start, stop = exon_spec
         transcripts[transcript_id].add_exon(start, stop)
