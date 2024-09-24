@@ -2396,22 +2396,31 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         }
     }
 
-    data = [
-        Data(
+    # data = [
+    #     Data(
+    #         riboseq_footprint_pileup,
+    #         codon_map,
+    #         transcript_normalization_factor,
+    #         is_pos_mappable,
+    #         seq
+    #     )
+    #     for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable, seq
+    #     in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability, sequences)
+    # ]
+
+    for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable, seq, transcript in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability, sequences, transcripts):
+        transcript.data_obj = Data(
             riboseq_footprint_pileup,
             codon_map,
             transcript_normalization_factor,
             is_pos_mappable,
             seq
         )
-        for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable, seq
-        in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability, sequences)
-    ]
+
 
     discovery_mode_results = list()
     orf_posteriors = list()
     candidate_cds_matrices = list()
-    frames = list()
     # For each transcript
     i = 0
 
@@ -2419,15 +2428,15 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
     from ribohmm.contrib.load_data import read_annotations
     start_codon_annotated, stop_codon_annotated = read_annotations()
 
-    for transcript, riboseq_data in zip(transcripts, data):
+    for transcript in transcripts:
         print('##### Looking at transcript {}'.format(i))
         transcript_id = transcript.raw_attrs.get('reference_id', transcript.raw_attrs.get('transcript_id'))
         i += 1
-        riboseq_data.compute_log_probability(emission)
-        state = State(riboseq_data.n_triplets)
-        state._forward_update(data=riboseq_data, transition=transition)
-        emission_errors = riboseq_data.compute_observed_pileup_deviation(emission, return_sorted=False)
-        emission_errors_normalized_tes = riboseq_data.compute_observed_pileup_deviation(emission, return_sorted=False, normalize_tes=True)
+        transcript.data_obj.compute_log_probability(emission)
+        transcript.state_obj = state = State(transcript.data_obj.n_triplets)
+        transcript.state_obj._forward_update(data=transcript.data_obj, transition=transition)
+        emission_errors = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False)
+        emission_errors_normalized_tes = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, normalize_tes=True)
         ORF_EMISSION_ERROR_MEAN_WITH_UTR = 1
         ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR = 2
         ORF_EMISSION_ERROR_MEAN_ONLY_ORF = 3
@@ -2435,10 +2444,10 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         ORF_EMISSION_ERROR_TRIPLETS_DROPPED_FOR_MAPPABILITY = 5
         ORF_EMISSION_ERROR_ORF_PILEUPS = 5
 
-        orf_periodicity_likelihoods, orf_occupancy_likelihoods = riboseq_data.compute_minimal_ORF_log_probability()
+        orf_periodicity_likelihoods, orf_occupancy_likelihoods = transcript.data_obj.compute_minimal_ORF_log_probability()
 
         candidate_cds_likelihoods = list()
-        _, all_candidate_cds = riboseq_data.orf_state_matrix()
+        _, all_candidate_cds = transcript.data_obj.orf_state_matrix()
         all_candidate_cds = all_candidate_cds[0] + all_candidate_cds[1] + all_candidate_cds[2]
 
         for candidate_cds, orf_emission_error, orf_emission_error_normalized_tes in zip(all_candidate_cds, emission_errors, emission_errors_normalized_tes):
@@ -2469,17 +2478,17 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
 
             # Get the data log probability for each position in this transcript, with the states defined by
             # the candidate CDS
-            for triplet_i in range(riboseq_data.log_probability.shape[1]):
+            for triplet_i in range(transcript.data_obj.log_probability.shape[1]):
                 triplet_state = get_triplet_state(triplet_i, start_pos=candidate_cds.start, stop_pos=candidate_cds.stop)
-                triplet_likelihoods.append(riboseq_data.log_probability[candidate_cds.frame, triplet_i, triplet_state])
-                triplet_periodicity_likelihoods.append(riboseq_data.periodicity_model[candidate_cds.frame, triplet_i, triplet_state])
-                triplet_occupancy_likelihoods.append(riboseq_data.occupancy_model[candidate_cds.frame, triplet_i, triplet_state])
-                triplet_alpha_values.append(state.alpha[candidate_cds.frame, triplet_i, triplet_state])
-                triplet_state_likelihood_values.append(state.likelihood[triplet_i, candidate_cds.frame])
+                triplet_likelihoods.append(transcript.data_obj.log_probability[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_periodicity_likelihoods.append(transcript.data_obj.periodicity_model[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_occupancy_likelihoods.append(transcript.data_obj.occupancy_model[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_alpha_values.append(transcript.state_obj.alpha[candidate_cds.frame, triplet_i, triplet_state])
+                triplet_state_likelihood_values.append(transcript.state_obj.likelihood[triplet_i, candidate_cds.frame])
                 triplet_states.append(get_triplet_string(triplet_state))
 
             try:
-                minimum_ORF_start, minimum_ORF_end = riboseq_data.compute_minimal_ORF(candidate_cds)
+                minimum_ORF_start, minimum_ORF_end = transcript.data_obj.compute_minimal_ORF(candidate_cds)
                 minimum_ORF_length = minimum_ORF_end - minimum_ORF_start + 1
             except:
                 minimum_ORF_length = None
@@ -2513,7 +2522,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                     'occupancy': orf_occupancy_likelihoods.get(candidate_cds)
                 },
                 'only_ORF_length': minimum_ORF_length,
-                'only_ORF_riboseq_counts': riboseq_data.get_minimal_ORF_overlapping_reads(candidate_cds),
+                'only_ORF_riboseq_counts': transcript.data_obj.get_minimal_ORF_overlapping_reads(candidate_cds),
 
                 'data_loglikelihood_periodicity': {
                     # 'by_pos': triplet_periodicity_likelihoods,
@@ -2552,43 +2561,42 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             }
             candidate_cds_likelihoods.append(candidate_cds_results)
 
-        frame = Frame()
-        frame.update(riboseq_data, state)
-        frames.append(frame)
+        transcript.frame_obj = frame = Frame()
+        transcript.frame_obj.update(transcript.data_obj, transcript.state_obj)
 
         # These two matrices are the same dimensions
         # orf_posteriors_ is a matrix of orf posteriors, where the first dimension is the frame
         # candidate_cds_matrix are all CandidateCDS namedtuples
-        orf_posteriors_, candidate_cds_matrix = state.discovery_decode(data=riboseq_data, transition=transition, transcript=transcript)
+        orf_posteriors_, candidate_cds_matrix = transcript.state_obj.discovery_decode(data=transcript.data_obj, transition=transition, transcript=transcript)
         orf_posteriors.append(orf_posteriors_)
         candidate_cds_matrices.append(candidate_cds_matrix)
         # print(orf_posteriors)
-        state.decode(data=riboseq_data, transition=transition)
+        transcript.state_obj.decode(data=transcript.data_obj, transition=transition)
         discovery_mode_results.append({
             'candidate_orf': candidate_cds_likelihoods,
-            'transcript_normalization_factor': riboseq_data.transcript_normalization_factor,
-            'n_triplets': riboseq_data.n_triplets,
+            'transcript_normalization_factor': transcript.data_obj.transcript_normalization_factor,
+            'n_triplets': transcript.data_obj.n_triplets,
             'orf_posteriors': orf_posteriors_,
-            # 'data_logprob_full': riboseq_data.log_probability.tolist(),
-            # 'periodicity_model_full': riboseq_data.periodicity_model.tolist(),
-            # 'occupancy_model_full': riboseq_data.occupancy_model.tolist(),
-            # 'riboseq_counts_total_pileup': riboseq_data.total_pileup.tolist(),
-            # 'riboseq_counts_total_pileup_sum_footprints': riboseq_data.total_pileup.sum(axis=2).tolist(),
-            # 'data_logprob_full': riboseq_data.log_likelihood.tolist(),
+            # 'data_logprob_full': transcript.data_obj.log_probability.tolist(),
+            # 'periodicity_model_full': transcript.data_obj.periodicity_model.tolist(),
+            # 'occupancy_model_full': transcript.data_obj.occupancy_model.tolist(),
+            # 'riboseq_counts_total_pileup': transcript.data_obj.total_pileup.tolist(),
+            # 'riboseq_counts_total_pileup_sum_footprints': transcript.data_obj.total_pileup.sum(axis=2).tolist(),
+            # 'data_logprob_full': transcript.data_obj.log_likelihood.tolist(),
             # 'state_alpha_full': state.alpha.tolist(),
             # 'state_decode_alphas': state.decode_alphas.tolist(),
             # 'triplet_genomic_positions': triplet_genomic_positions,
             'decode': {
-                'max_posterior': [utils.MAX if np.isinf(p) else p for p in state.max_posterior],
-                'best_start': [int(b) if b is not None else b for b in state.best_start],
-                'best_stop': [int(b) if b is not None else b for b in state.best_stop]
+                'max_posterior': [utils.MAX if np.isinf(p) else p for p in transcript.state_obj.max_posterior],
+                'best_start': [int(b) if b is not None else b for b in transcript.state_obj.best_start],
+                'best_stop': [int(b) if b is not None else b for b in transcript.state_obj.best_stop]
             },
             'final_posterior': {
-                'by_frame': state.max_posterior * frame.posterior,
-                'max_index': np.argmax(state.max_posterior * frame.posterior)
+                'by_frame': transcript.state_obj.max_posterior * transcript.frame_obj.posterior,
+                'max_index': np.argmax(transcript.state_obj.max_posterior * transcript.frame_obj.posterior)
             }
         })
-    return orf_posteriors, candidate_cds_matrices, frames, discovery_mode_results
+    return orf_posteriors, candidate_cds_matrices, discovery_mode_results
 
 
 """

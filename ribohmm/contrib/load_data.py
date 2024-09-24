@@ -424,6 +424,7 @@ class Transcript():
         # For core RiboHMM
         self.data_obj = None
         self.state_obj = None
+        self.frame_obj = None
 
     @staticmethod
     def compute_all(transcripts: List['Transcript'], start_annotations: dict, stop_annotations: dict):
