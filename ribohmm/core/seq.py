@@ -6,24 +6,6 @@ from ribohmm.utils import STARTCODONS, STOPCODONS
 STARTS = {codon_name: i for i, codon_name in enumerate(STARTCODONS, start=1)}
 STOPS = {codon_name: i for i, codon_name in enumerate(STOPCODONS, start=1)}
 
-# load pre-computed Kozak model
-# kozak_model = np.load("data/kozak_model.npz")
-# FREQ = dict([(c,np.log2(row)) for c,row in zip(['A','U','G','C'], kozak_model['freq'])])
-# ALTFREQ = dict([(c,np.log2(row)) for c,row in zip(['A','U','G','C'], kozak_model['altfreq'])])
-# for c in ['A','U','G','C']:
-#     FREQ[c][9:12] = ALTFREQ[c][9:12]
-
-
-# def get_util_scripts():
-#     util_scripts = dict()
-#     for util_script_filename in resource_listdir(Requirement.parse('swiftseq'), 'swiftseq/util_scripts'):
-#         util_name = util_script_filename.rsplit('.', 1)[FIRST]
-#         util_full_filepath = resource_filename(Requirement.parse('swiftseq'), 'swiftseq/util_scripts/{}'.format(
-#             util_script_filename
-#         ))
-#         util_scripts['util_{}'.format(util_name)] = util_full_filepath
-#     return util_scripts
-
 
 def get_resource_kozak_path():
     return resource_filename(Requirement.parse('ribohmm'), 'ribohmm/include/kozak_model.npz')
@@ -96,9 +78,6 @@ class RnaSequence(object):
         return stop_codon_map
 
 
-    # @cython.boundscheck(False)
-    # @cython.wraparound(False)
-    # @cython.nonecheck(False)
     def _mark_start_codons(self):
         """
         Given a sequence, mark the start codons. The marking is done 1 triplet behind the actual base pairs in the
