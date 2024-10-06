@@ -2396,18 +2396,6 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
         }
     }
 
-    # data = [
-    #     Data(
-    #         riboseq_footprint_pileup,
-    #         codon_map,
-    #         transcript_normalization_factor,
-    #         is_pos_mappable,
-    #         seq
-    #     )
-    #     for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable, seq
-    #     in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability, sequences)
-    # ]
-
     for riboseq_footprint_pileup, codon_map, transcript_normalization_factor, is_pos_mappable, seq, transcript in zip(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability, sequences, transcripts):
         transcript.data_obj = Data(
             riboseq_footprint_pileup,
