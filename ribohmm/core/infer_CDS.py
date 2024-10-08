@@ -347,7 +347,10 @@ def infer_CDS(
 
     # Some debugging for the debug_metadata object
     debug_object = serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']})
-    find_start_codon(debug_object)
+    try:
+        find_start_codon(debug_object)
+    except Exception as e:
+        print('Could not run find_start_codon(): {}'.format(e))
 
     # from ribohmm.contrib.load_data import read_annotations, Transcript
     all_transcripts: List[Transcript] = [t for t in transcript_models.values()]
@@ -439,6 +442,7 @@ def find_start_codon(data, only_show_missing=True):
                     distance_to_start = abs(orf['start_codon_genomic_position'][start_codon_index] - orf['annotated_start'])
                 except:
                     print('Could not find distance to start for transcript {} ORF {}'.format(trns['transcript_info'].get('id'), i))
+                    distance_to_start = 9e10
                 if orf['start_codon_genomic_position'][start_codon_index] == orf['annotated_start']:
                     has_start_codon.append(orf['definition'])
                 if distance_to_start < 5:
