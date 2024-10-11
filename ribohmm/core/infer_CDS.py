@@ -183,11 +183,8 @@ def infer_on_transcripts(primary_strand, transcripts: List[Transcript], ribo_tra
                 record = write_inferred_cds(transcript, state, frame, rna_sequence)
                 records_to_write.append(record)
         elif infer_algorithm == 'discovery':
-            # transcripts = [t for t in transcripts if t.id == 'STRG.6219.1']
-            # transcripts = [t for t in transcripts if t.id == 'STRG.6390.5']
-            # transcripts = [t for t in transcripts if t.id == 'STRG.6326.5']
             logger.info(f'Running the Discovery algorithm over the {primary_strand} strand')
-            pos_orf_posteriors, pos_candidate_cds_matrices, pos_frames, pos_data_log_probs = discovery_mode_data_logprob(
+            pos_orf_posteriors, pos_candidate_cds_matrices, pos_data_log_probs = discovery_mode_data_logprob(
                 riboseq_footprint_pileups=footprint_counts,
                 codon_maps=codon_maps,
                 transcript_normalization_factors=rna_counts,
@@ -223,14 +220,14 @@ def infer_on_transcripts(primary_strand, transcripts: List[Transcript], ribo_tra
                 for t, candidate_cds_likelihoods, f, seq in zip(transcripts, pos_data_log_probs, footprint_counts, rna_sequences)
             ]
 
-            for transcript, frame, rna_sequence, orf_posterior_matrix, candidate_cds_matrix in zip(
-                transcripts, pos_frames, rna_sequences, pos_orf_posteriors, pos_candidate_cds_matrices):
+            for transcript, rna_sequence, orf_posterior_matrix, candidate_cds_matrix in zip(
+                transcripts, rna_sequences, pos_orf_posteriors, pos_candidate_cds_matrices):
                 for frame_i in range(N_FRAMES):
                     for orf_i, orf_posterior in enumerate(orf_posterior_matrix[frame_i]):
                         candidate_cds = candidate_cds_matrix[frame_i][orf_i]
                         record = write_inferred_cds_discovery_mode(
                             transcript=transcript,
-                            frame=frame,
+                            frame=transcript.frame_obj,
                             rna_sequence=rna_sequence,
                             candidate_cds=candidate_cds,
                             orf_posterior=orf_posterior,
@@ -350,7 +347,10 @@ def infer_CDS(
 
     # Some debugging for the debug_metadata object
     debug_object = serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']})
-    find_start_codon(debug_object)
+    try:
+        find_start_codon(debug_object)
+    except Exception as e:
+        print('Could not run find_start_codon(): {}'.format(e))
 
     # from ribohmm.contrib.load_data import read_annotations, Transcript
     all_transcripts: List[Transcript] = [t for t in transcript_models.values()]
@@ -442,6 +442,7 @@ def find_start_codon(data, only_show_missing=True):
                     distance_to_start = abs(orf['start_codon_genomic_position'][start_codon_index] - orf['annotated_start'])
                 except:
                     print('Could not find distance to start for transcript {} ORF {}'.format(trns['transcript_info'].get('id'), i))
+                    distance_to_start = 9e10
                 if orf['start_codon_genomic_position'][start_codon_index] == orf['annotated_start']:
                     has_start_codon.append(orf['definition'])
                 if distance_to_start < 5:
