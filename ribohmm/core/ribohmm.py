@@ -2438,7 +2438,11 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
     for transcript in transcripts:
         try:
             print('##### Looking at transcript {}'.format(i))
-            transcript_id = transcript.raw_attrs.get('reference_id', transcript.raw_attrs.get('transcript_id'))
+            # transcript_id = transcript.raw_attrs.get('reference_id', transcript.raw_attrs.get('transcript_id'))
+            try:
+                transcript_id = transcript.raw_attrs['transcript_id']
+            except KeyError:
+                raise KeyError('Could not find transcript id')
             i += 1
             transcript.data_obj.compute_log_probability(emission)
             transcript.state_obj = state = State(transcript.data_obj.n_triplets)
