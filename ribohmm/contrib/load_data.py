@@ -563,7 +563,8 @@ class Transcript():
     @staticmethod
     def populate_annotated_start_stop(transcripts: List['Transcript'], start_annotations: dict, stop_annotations: dict):
         for t in transcripts:
-            transcript_id = t.raw_attrs.get('reference_id', t.raw_attrs.get('transcript_id'))
+            # transcript_id = t.raw_attrs.get('reference_id', t.raw_attrs.get('transcript_id'))
+            transcript_id = t.raw_attrs.get('transcript_id')
             t.annotated_start_pos = start_annotations.get(transcript_id)
             t.annotated_stop_pos = stop_annotations.get(transcript_id)
 
