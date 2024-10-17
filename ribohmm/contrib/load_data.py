@@ -701,8 +701,6 @@ def load_gtf(filename, use_cache=True, cache_dir=None) -> Dict[str, Transcript]:
                     )
 
     # Apply exon cache
-    print('Exon cache:')
-    print(exon_cache)
     for exon_spec in exon_cache:
         transcript_id, start, stop = exon_spec
         transcripts[transcript_id].add_exon(start, stop)

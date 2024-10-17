@@ -328,29 +328,7 @@ class Data:
         try:
             start_minimal_orf = int(np.where(state_seq == States.ST_TIS)[0][0] - buffer)
         except:
-            print('state_seq')
-            print(state_seq)
-            print(state_seq.shape)
-            print(n_triplets)
-            print(candidate_cds.start)
-            print(candidate_cds.stop)
-
-            def write_seq(seq, numbers=False):
-                out = ''
-                for i, s in enumerate(seq):
-                    if i % 3 == 0:
-                        out += ' '
-                        if numbers:
-                            out += '[{}]'.format((int(i / 3)))
-                    out += s
-                return out.strip()
-                if divmod(len(seq), 3)[1] != 0:
-                    offset = 1
-                else:
-                    offset = 0
-                return ' '.join([seq[s:s + 3] for s in range(int(len(seq) / 3) + offset)])
-            print(write_seq(self.seq, numbers=True))
-            raise
+            raise ValueError('Could not find start in compute_minimal_ORF()')
         try:
             end_minimal_orf = int(np.where(state_seq == States.ST_3PRIME_UTS_MINUS)[0][0] + buffer)
         except:
@@ -358,30 +336,7 @@ class Data:
             if state_seq[-1] == States.ST_TTS:
                 end_minimal_orf = int(np.where(state_seq == States.ST_TTS)[0][0] + buffer)
             else:
-                print('end minimal orf')
-                print('state_seq')
-                print(state_seq)
-                print(state_seq.shape)
-                print(n_triplets)
-                print(candidate_cds.start)
-                print(candidate_cds.stop)
-
-                def write_seq(seq, numbers=False):
-                    out = ''
-                    for i, s in enumerate(seq):
-                        if i % 3 == 0:
-                            out += ' '
-                            if numbers:
-                                out += '[{}]'.format((int(i / 3)))
-                        out += s
-                    return out.strip()
-                    if divmod(len(seq), 3)[1] != 0:
-                        offset = 1
-                    else:
-                        offset = 0
-                    return ' '.join([seq[s:s + 3] for s in range(int(len(seq) / 3) + offset)])
-                print(write_seq(self.seq, numbers=True))
-                raise
+                raise ValueError('Could not find end in compute_minimal_ORF()')
         return start_minimal_orf, end_minimal_orf
 
     def get_minimal_ORF_overlapping_reads(self, candidate_cds):
@@ -403,7 +358,7 @@ class Data:
     def compute_minimal_ORF_log_probability(self):
         N_FRAMES = 3
         orf_state_matrix, candidate_cds_matrix = self.orf_state_matrix()
-        print('#### Size of candidate cds: {}'.format(sum([len(c) for c in candidate_cds_matrix])))
+        # print('#### Size of candidate cds: {}'.format(sum([len(c) for c in candidate_cds_matrix])))
 
         # orf_periodicity_likelihoods = [list(), list(), list()]
         orf_periodicity_likelihoods = dict()
@@ -551,16 +506,16 @@ class Data:
                     # print(self.n_triplets)
                     # print(observed_start)
                     # print(observed_stop)
-                    print('999999999999999')
-                    print(with_utr_square_error)
+                    # print('999999999999999')
+                    # print(with_utr_square_error)
                     by_triplet_error_with_utr[footprint_length_i] = -1
                     # print(self.get_state_sequence(self.n_triplets, observed_start, observed_stop))
                     # raise
                 try:
                     by_triplet_error_only_orf[footprint_length_i] = np.sum(only_orf_square_error, axis=1)
                 except:
-                    print('888888888888888888888')
-                    print(with_utr_square_error)
+                    # print('888888888888888888888')
+                    # print(with_utr_square_error)
                     by_triplet_error_only_orf[footprint_length_i] = -1
 
 
@@ -2122,18 +2077,15 @@ def learn_parameters(observations, codon_id, scales, mappability, scale_beta, mi
     # cdef Transition transition, best_transition
     # cdef State state
     # cdef Frame frame
-    print('In learn_parameters')
 
     data = [
         Data(observation, id, scale, mappable)
         for observation, id, scale, mappable
         in zip(observations, codon_id, scales, mappability)
     ]
-    print('inflated data')
 
     # Initialize latent variables
     states = [State(datum.M) for datum in data]
-    print('inflated states')
     frames = [Frame() for _ in range(len(data))]
 
     print('Stage 1: allow only AUG start codons; only update periodicity parameters ...')
@@ -2437,12 +2389,12 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
     transcript_id = ''
     for transcript in transcripts:
         try:
-            print('##### Looking at transcript {}'.format(i))
             # transcript_id = transcript.raw_attrs.get('reference_id', transcript.raw_attrs.get('transcript_id'))
             try:
                 transcript_id = transcript.raw_attrs['transcript_id']
             except KeyError:
                 raise KeyError('Could not find transcript id')
+            print('Looking at transcript {}'.format(transcript_id))
             i += 1
             transcript.data_obj.compute_log_probability(emission)
             transcript.state_obj = state = State(transcript.data_obj.n_triplets)

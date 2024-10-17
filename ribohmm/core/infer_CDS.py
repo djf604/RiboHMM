@@ -259,7 +259,7 @@ def infer_CDS(
 ):
     logger.info('Starting infer_CDS()')
     N_TRANSCRIPTS = dev_restrict_transcripts_to  # Set to None to allow all transcripts
-    print(f'!!!!!!!!!! N Transcripts: {N_TRANSCRIPTS}')
+    # print(f'Processing N Transcripts: {N_TRANSCRIPTS}')
     N_FRAMES = 3
     DEBUG_OUTPUT_FILENAME = 'feb07.json'
 
@@ -270,7 +270,7 @@ def infer_CDS(
 
     # load transcripts
     transcript_names: List[str] = list(transcript_models.keys())[:N_TRANSCRIPTS]
-    print(f'!!!!! Size of transcripts: {len(transcript_names)}')
+    # print(f'!!!!! Size of transcripts: {len(transcript_names)}')
     logger.info('Number of transcripts: {}'.format(len(transcript_names)))
 
     # open output file handle
@@ -322,7 +322,7 @@ def infer_CDS(
     wait(futs)
     for fut in futs:
         records_to_write_, debug_metadata_ = fut.result()
-        print(f'Got {len(records_to_write_)} records to write')
+        # print(f'Got {len(records_to_write_)} records to write')
         records_to_write.extend(records_to_write_)
         for d in debug_metadata_:
             debug_metadata[d['transcript_info']['strand']].append(d)
@@ -340,56 +340,57 @@ def infer_CDS(
     # Output debug output bundle
     if debug_metadata and dev_output_debug_data:
         with open(os.path.join(output_directory, dev_output_debug_data), 'w') as out:
-            print('********************')
+            # print('********************')
             print('number of pos: {}'.format(len(debug_metadata['+'])))
             print('number of neg: {}'.format(len(debug_metadata['-'])))
             json.dump(serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']}), out)
 
-    # Some debugging for the debug_metadata object
-    debug_object = serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']})
-    try:
-        find_start_codon(debug_object)
-    except Exception as e:
-        print('Could not run find_start_codon(): {}'.format(e))
-
-    # from ribohmm.contrib.load_data import read_annotations, Transcript
-    all_transcripts: List[Transcript] = [t for t in transcript_models.values()]
-    genome_track.get_sequence(all_transcripts, add_seq_to_transcript=True)
-    start_codon_annotations, stop_codon_annotations = read_annotations()
-    print('********** We are finding problematic transcripts ***********')
-    Transcript.compute_all(
-        all_transcripts,
-        start_annotations=start_codon_annotations,
-        stop_annotations=stop_codon_annotations
-    )
-
-    # Analyze the results
-    n_transcripts = len(all_transcripts)
-    missing_annotation_transcripts = [
-        t for t in all_transcripts
-        if not t.annotated_ORF_found
-    ]
-    n_missing_annotation_transcripts = len(missing_annotation_transcripts)
-
-    print('{}/{} annotated stat pos not found'.format(n_missing_annotation_transcripts, n_transcripts))
-    for t in missing_annotation_transcripts:
-        print('Name: {} | {} | {} | {} | {}'.format(t.id, t.ref_gene_id, t.ref_transcript_id,
-                                                    t.raw_attrs.get('reference_id'), t.raw_attrs.get('transcript_id')))
-        print('{}:{}:{}'.format(t.chromosome, t.start, t.stop))
-        print('Exons:')
-        print([(e[0] + t.start, e[1] + t.start) for e in t.exons])
-        print('Annotated start pos: {}'.format(t.annotated_start_pos))
-        print('Closest ORF: {}'.format(t.closest_orf))
-        print('Transcript strand: {}'.format(t.strand))
-        print(t.get_exonic_sequence(genome_track=genome_track, formatted=True))
-        for orf in t.orfs:
-            print(orf)
-        print('**************************************')
-
-
-    n_not_found = sum([1 - int(t.annotated_ORF_found) for t in transcript_models.values()])
-    total_transcripts = len(transcript_models.values())
-    print('{}/{} not found'.format(n_not_found, total_transcripts))
+    # Uncomment the below if we ever come back to analyzing annotated start codon
+    # # Some debugging for the debug_metadata object
+    # debug_object = serialize_output({'pos': debug_metadata['+'], 'neg': debug_metadata['-']})
+    # try:
+    #     find_start_codon(debug_object)
+    # except Exception as e:
+    #     print('Could not run find_start_codon(): {}'.format(e))
+    #
+    # # from ribohmm.contrib.load_data import read_annotations, Transcript
+    # all_transcripts: List[Transcript] = [t for t in transcript_models.values()]
+    # genome_track.get_sequence(all_transcripts, add_seq_to_transcript=True)
+    # start_codon_annotations, stop_codon_annotations = read_annotations()
+    # # print('********** We are finding problematic transcripts ***********')
+    # Transcript.compute_all(
+    #     all_transcripts,
+    #     start_annotations=start_codon_annotations,
+    #     stop_annotations=stop_codon_annotations
+    # )
+    #
+    # # Analyze the results
+    # n_transcripts = len(all_transcripts)
+    # missing_annotation_transcripts = [
+    #     t for t in all_transcripts
+    #     if not t.annotated_ORF_found
+    # ]
+    # n_missing_annotation_transcripts = len(missing_annotation_transcripts)
+    #
+    # print('{}/{} annotated stat pos not found'.format(n_missing_annotation_transcripts, n_transcripts))
+    # for t in missing_annotation_transcripts:
+    #     print('Name: {} | {} | {} | {} | {}'.format(t.id, t.ref_gene_id, t.ref_transcript_id,
+    #                                                 t.raw_attrs.get('reference_id'), t.raw_attrs.get('transcript_id')))
+    #     print('{}:{}:{}'.format(t.chromosome, t.start, t.stop))
+    #     print('Exons:')
+    #     print([(e[0] + t.start, e[1] + t.start) for e in t.exons])
+    #     print('Annotated start pos: {}'.format(t.annotated_start_pos))
+    #     print('Closest ORF: {}'.format(t.closest_orf))
+    #     print('Transcript strand: {}'.format(t.strand))
+    #     print(t.get_exonic_sequence(genome_track=genome_track, formatted=True))
+    #     for orf in t.orfs:
+    #         print(orf)
+    #     print('**************************************')
+    #
+    #
+    # n_not_found = sum([1 - int(t.annotated_ORF_found) for t in transcript_models.values()])
+    # total_transcripts = len(transcript_models.values())
+    # print('{}/{} not found'.format(n_not_found, total_transcripts))
 
     logger.info('Closing handles')
     handle.close()
