@@ -111,6 +111,9 @@ class Data:
 
         # Save raw riboseq pileup
         self.raw_riboseq_pileup = deepcopy(riboseq_pileup)
+        import pickle
+        with open('riboseq_lengths.pkl', 'wb') as out:
+            pickle.dump(riboseq_pileup, out)
 
         # length of transcript
         self.L = self.transcript_length = obs.shape[0]
@@ -132,6 +135,9 @@ class Data:
         self.missingness_type = np.zeros((self.n_footprint_lengths, 3, self.n_triplets), dtype=np.uint8)
         # total footprint count for each triplet in each frame for each footprint length
         self.total_pileup = np.empty((3, self.n_triplets, self.n_footprint_lengths), dtype=np.uint64)
+
+        self.rmses = [list(), list(), list()]
+        self.ssrmses = [list(), list(), list()]
 
         # Compute missingness type and total footprint count in each triplet
         for frame_i in range(3):
@@ -542,6 +548,10 @@ class Data:
             # print(type(by_triplet_error_only_orf[0]))
             # print(type(triplets_dropped_for_mappability))
             # print(type(ORF_pileups))
+            if normalize_tes:
+                self.ssrmses[candidate_orf.frame].append(orf_error_only_orf)
+            else:
+                self.rmses[candidate_orf.frame].append(orf_error_with_utr)
             orfs_with_errors.append((candidate_orf, orf_error_with_utr, by_triplet_error_with_utr,
                                      orf_error_only_orf, by_triplet_error_only_orf, triplets_dropped_for_mappability,
                                      ORF_pileups))
@@ -2400,7 +2410,12 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             transcript.state_obj = state = State(transcript.data_obj.n_triplets)
             transcript.state_obj._forward_update(data=transcript.data_obj, transition=transition)
             emission_errors = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False)
+            import pickle
+            with open('rmse.pkl', 'wb') as out:
+                pickle.dump(emission_errors, out)
             emission_errors_normalized_tes = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, normalize_tes=True)
+            with open('ssrmse.pkl', 'wb') as out:
+                pickle.dump(emission_errors_normalized_tes, out)
             ORF_EMISSION_ERROR_MEAN_WITH_UTR = 1
             ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR = 2
             ORF_EMISSION_ERROR_MEAN_ONLY_ORF = 3

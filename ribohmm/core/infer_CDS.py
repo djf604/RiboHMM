@@ -30,19 +30,21 @@ warnings.filterwarnings('ignore', '.*invalid value.*',)
 N_FRAMES = 3
 
 
-def write_inferred_cds_discovery_mode(transcript, frame, rna_sequence, candidate_cds, orf_posterior,
-                                      orf_start, orf_stop):
+
+
+def write_inferred_cds_discovery_mode(transcript, orf_i, candidate_cds, orf_posterior,
+                                      orf_start, orf_stop, rmse, ssrmse):
     try:
         # print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
         #       f' Posteriors: {list(frame.posterior)} | {orf_posterior} * {frame.posterior[candidate_cds.frame]}')
-        posterior = int(orf_posterior * frame.posterior[candidate_cds.frame] * 10_000)
+        posterior = int(orf_posterior * transcript.frame_obj.posterior[candidate_cds.frame] * 10_000)
         # print(f'###### {posterior}')
     except:
         posterior = 'NaN'
     tis = orf_start  # This is base position, not a state position
     tts = orf_stop
 
-    protein = utils.translate(rna_sequence[tis:tts])
+    protein = utils.translate(transcript.raw_seq[tis:tts])
     # identify TIS and TTS in genomic coordinates
     if transcript.strand == '+':
         cdstart = transcript.start + np.where(transcript.mask)[0][tis]
@@ -51,6 +53,28 @@ def write_inferred_cds_discovery_mode(transcript, frame, rna_sequence, candidate
         cdstart = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tts]
         cdstop = transcript.start + transcript.mask.size - np.where(transcript.mask)[0][tis]
 
+    # Need the triplet indexes and the state sequence
+    state_sequence = [utils.States.ST_TES] * (candidate_cds.stop - candidate_cds.start + 1)
+    state_sequence[0] = utils.States.ST_TIS
+    state_sequence[1] = utils.States.ST_TIS_PLUS
+    state_sequence[-3] = utils.States.ST_TTS_MINUS
+    state_sequence[-2] = utils.States.ST_TTS
+    state_sequence[-1] = utils.States.ST_3PRIME_UTS_MINUS
+    try:
+        occupancy_sum = np.choose(
+            state_sequence,
+            transcript.data_obj.occupancy_model[candidate_cds.frame][candidate_cds.start:candidate_cds.stop+1].T
+        ).sum()
+    except:
+        occupancy_sum = 0
+    try:
+        periodicity_sum = np.choose(
+            state_sequence,
+            transcript.data_obj.periodicity_model[candidate_cds.frame][candidate_cds.start:candidate_cds.stop + 1].T
+        ).sum()
+    except:
+        periodicity_sum = 0
+    riboseq_pileup = transcript.data_obj.riboseq_pileup.sum(axis=0)
     towrite = [transcript.chromosome,
                transcript.start,
                transcript.stop,
@@ -63,7 +87,23 @@ def write_inferred_cds_discovery_mode(transcript, frame, rna_sequence, candidate
                len(transcript.exons),
                ','.join(map(str, [e[1] - e[0] for e in transcript.exons])) + ',',
                ','.join(map(str, [transcript.start + e[0] for e in transcript.exons])) + ',',
-               candidate_cds.frame
+               candidate_cds.frame,
+               # Riboseq pileups, one for each length
+               # TODO Generalize this
+               riboseq_pileup[0],
+               riboseq_pileup[1],
+               riboseq_pileup[2],
+               riboseq_pileup[3],
+               # RNAseq count
+               transcript.rnaseq_count,
+               # RMSE
+               rmse,
+               # SS-RMSE
+               ssrmse,
+               # Occupancy model
+               occupancy_sum,
+               # Periodicity model
+               periodicity_sum
     ]
     return towrite
 
@@ -160,6 +200,9 @@ def infer_on_transcripts(primary_strand, transcripts: List[Transcript], ribo_tra
             rna_counts = np.ones((len(transcripts),), dtype='float')
         else:
             rna_counts = rnaseq_track.get_total_counts(transcripts)
+        import pickle
+        with open('rnaseq_lengths.pkl', 'wb') as out:
+            pickle.dump(rna_counts, out)
 
         # load mappability of transcripts; transform mappability to missingness
         logger.info('Loading mappability')
@@ -220,20 +263,23 @@ def infer_on_transcripts(primary_strand, transcripts: List[Transcript], ribo_tra
                 for t, candidate_cds_likelihoods, f, seq in zip(transcripts, pos_data_log_probs, footprint_counts, rna_sequences)
             ]
 
-            for transcript, rna_sequence, orf_posterior_matrix, candidate_cds_matrix in zip(
-                transcripts, rna_sequences, pos_orf_posteriors, pos_candidate_cds_matrices):
+            for transcript, orf_posterior_matrix, candidate_cds_matrix in zip(
+                transcripts, pos_orf_posteriors, pos_candidate_cds_matrices):
                 for frame_i in range(N_FRAMES):
                     for orf_i, orf_posterior in enumerate(orf_posterior_matrix[frame_i]):
                         candidate_cds = candidate_cds_matrix[frame_i][orf_i]
+                        rmse = transcript.data_obj.rmses[frame_i][orf_i]
+                        ssrmse = transcript.data_obj.ssrmses[frame_i][orf_i]
                         record = write_inferred_cds_discovery_mode(
                             transcript=transcript,
-                            frame=transcript.frame_obj,
-                            rna_sequence=rna_sequence,
+                            orf_i=orf_i,
                             candidate_cds=candidate_cds,
                             orf_posterior=orf_posterior,
                             # This is the same formula used in State.decode()
                             orf_start=candidate_cds.start * 3 + candidate_cds.frame,
-                            orf_stop=candidate_cds.stop * 3 + candidate_cds.frame
+                            orf_stop=candidate_cds.stop * 3 + candidate_cds.frame,
+                            rmse=rmse,
+                            ssrmse=ssrmse
                         )
                         records_to_write.append(record)
     return records_to_write, discovery_mode_debug_metadata
@@ -279,7 +325,11 @@ def infer_CDS(
     handle = open(os.path.join(output_directory, 'inferred_CDS.bed'), 'w')
     towrite = ["chromosome", "start", "stop", "transcript_id", 
                "posterior", "strand", "cdstart", "cdstop", 
-               "protein_seq", "num_exons", "exon_sizes", "exon_starts", "frame"]
+               "protein_seq", "num_exons", "exon_sizes", "exon_starts", "frame",
+               'riboseq_count_28', 'riboseq_count_29', 'riboseq_count_30', 'riboseq_count_31',
+               'rnaseq_count', 'rmse', 'ssrmse',
+               'occupancy_model', 'periodicity_model'
+               ]
     handle.write(" ".join(map(str, towrite))+'\n')
 
     from ribohmm.contrib.load_data import read_annotations, Transcript

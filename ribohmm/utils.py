@@ -29,12 +29,12 @@ class Mappability:
 class States:
     ST_5PRIME_UTS = 0
     ST_5PRIME_UTS_PLUS = 1
-    ST_TIS = 2
+    ST_TIS = 2  # Start codon
     ST_TIS_PLUS = 3
     ST_TES = 4
     ST_TTS_MINUS = 5
     ST_TTS = 6
-    ST_3PRIME_UTS_MINUS = 7
+    ST_3PRIME_UTS_MINUS = 7  # Stop codon
     ST_3PRIME_UTS = 8
 
 

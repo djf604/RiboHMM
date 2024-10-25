@@ -2,7 +2,8 @@ import os
 import hashlib
 import json
 import sys
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Optional
+import time
 
 import numpy as np
 import pandas as pd
@@ -10,6 +11,7 @@ import pysam
 from functools import reduce
 
 import ribohmm.utils as utils
+from ribohmm.core.ribohmm import Data
 
 MIN_MAP_QUAL = 10
 
@@ -33,6 +35,7 @@ class Genome():
     def get_sequence(self, transcripts: List['Transcript'], add_seq_to_transcript=False):
         """
         :param transcripts:
+        :param add_seq_to_transcript:
         :return:
         """
         if self._seq_handle is None:
@@ -296,38 +299,25 @@ class RnaSeq():
 
         self._counts_tbx = None
 
-    def get_total_counts(self, transcripts):
-        import time
-        start = time.perf_counter()
+    def get_count(self, transcript: 'Transcript'):
         if self._counts_tbx is None:
             self._counts_tbx = pysam.TabixFile(self.rnaseq_counts_bed)
-            # for chrom in self._counts_tbx.contigs:
-            #     start0 = time.perf_counter()
-            #     # a = (int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom))
-            #     logger.info(
-            #         'Elapsed time for pileup count: {}'.format(format_elapsed(time.perf_counter() - start0)))
-            #     start0 = time.perf_counter()
-            #     sum_total = sum((int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom)))
-            #     logger.info('Elapsed time for sum: {}, {}'.format(format_elapsed(time.perf_counter() - start0), sum_total))
-            #     start0 = time.perf_counter()
-            #     r = reduce(
-            #         lambda x, y: x + y,
-            #         (int(record.split('\t')[RnaSeq.PILEUP_COUNT]) for record in self._counts_tbx.fetch(chrom))
-            #     )
-            #     self.total += r
-            #     logger.info('Elapsed time for reduce: {}, {}'.format(format_elapsed(time.perf_counter() - start0), r))
-        logger.info('Elapsed time for loading counts tbx: {}'.format(format_elapsed(time.perf_counter() - start)))
+        mask = transcript.mask if transcript.strand == '+' else transcript.mask[::-1]
+        counts = 0
+        for count_record in self._counts_tbx.fetch(transcript.chromosome, transcript.start, transcript.stop):
+            chrom, start, stop, asite_count, strandedness, _ = count_record.split('\t')
+            count_pos = int(start) - transcript.start
+            if mask[count_pos]:
+                counts += int(asite_count)
+
+        transcript.rnaseq_count = counts
+        return counts
+
+    def get_total_counts(self, transcripts):
         start_ = time.perf_counter()
         total_counts = list()
         for transcript in transcripts:
-            mask = transcript.mask if transcript.strand == '+' else transcript.mask[::-1]
-            counts = 0
-            for count_record in self._counts_tbx.fetch(transcript.chromosome, transcript.start, transcript.stop):
-                chrom, start, stop, asite_count, strandedness, _ = count_record.split('\t')
-                count_pos = int(start) - transcript.start
-                if mask[count_pos]:
-                    counts += int(asite_count)
-
+            counts = self.get_count(transcript)
             total_counts.append(max(1, counts) * 1e6 / (transcript.L * self.total))
 
         logger.info('Elapsed time for getting counts: {}'.format(format_elapsed(time.perf_counter() - start_)))
@@ -422,9 +412,13 @@ class Transcript():
         self.closest_distance = sys.maxsize
 
         # For core RiboHMM
-        self.data_obj = None
+        self.data_obj: Optional[Data] = None
         self.state_obj = None
         self.frame_obj = None
+
+        # For calculated attribute storage
+        self.rnaseq_count = None
+        self.orf_data = dict()
 
     @staticmethod
     def compute_all(transcripts: List['Transcript'], start_annotations: dict, stop_annotations: dict):
