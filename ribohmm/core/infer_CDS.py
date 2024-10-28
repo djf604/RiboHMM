@@ -44,7 +44,7 @@ def write_inferred_cds_discovery_mode(transcript, orf_i, candidate_cds, orf_post
     tis = orf_start  # This is base position, not a state position
     tts = orf_stop
 
-    protein = utils.translate(transcript.raw_seq[tis:tts])
+    protein = utils.translate(transcript.transcribed_seq[tis:tts])
     # identify TIS and TTS in genomic coordinates
     if transcript.strand == '+':
         cdstart = transcript.start + np.where(transcript.mask)[0][tis]
