@@ -74,7 +74,7 @@ def write_inferred_cds_discovery_mode(transcript, orf_i, candidate_cds, orf_post
         ).sum()
     except:
         periodicity_sum = 0
-    riboseq_pileup = transcript.data_obj.riboseq_pileup.sum(axis=0)
+    riboseq_pileup = transcript.data_obj.riboseq_pileup[tis:tts].sum(axis=0)
     towrite = [transcript.chromosome,
                transcript.start,
                transcript.stop,
