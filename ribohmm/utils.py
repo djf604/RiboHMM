@@ -68,31 +68,31 @@ make_complement = lambda seq: [DNA_COMPLEMENT[s] for s in seq]
 make_reverse_complement = lambda seq: [DNA_COMPLEMENT[s] for s in seq][::-1]
 makestr = lambda seq: ''.join(map(chr,seq))
 
-CODON_AA_MAP = dict([('GCU','A'), ('GCC','A'), ('GCA','A'), ('GCG','A'), \
-                 ('UGU','C'), ('UGC','C'), \
-                 ('GAU','D'), ('GAC','D'), \
-                 ('GAA','E'), ('GAG','E'), \
-                 ('CGU','R'), ('CGC','R'), ('CGA','R'), ('CGG','R'), ('AGA','R'), ('AGG','R'), \
-                 ('UUU','F'), ('UUC','F'), \
-                 ('GGU','G'), ('GGC','G'), ('GGA','G'), ('GGG','G'), \
-                 ('CAU','H'), ('CAC','H'), \
-                 ('AAA','K'), ('AAG','K'), \
-                 ('UUA','L'), ('UUG','L'), ('CUU','L'), ('CUC','L'), ('CUA','L'), ('CUG','L'), \
-                 ('AUU','I'), ('AUC','I'), ('AUA','I'), \
-                 ('AUG','M'), \
-                 ('AAU','N'), ('AAC','N'), \
-                 ('CCU','P'), ('CCC','P'), ('CCA','P'), ('CCG','P'), \
-                 ('CAA','Q'), ('CAG','Q'), \
-                 ('UCU','S'), ('UCC','S'), ('UCA','S'), ('UCG','S'), ('AGU','S'), ('AGC','S'), \
-                 ('ACU','T'), ('ACC','T'), ('ACA','T'), ('ACG','T'), \
-                 ('GUU','V'), ('GUC','V'), ('GUA','V'), ('GUG','V'), \
-                 ('UGG','W'), \
-                 ('UAU','Y'), ('UAC','Y'), \
+CODON_AA_MAP = dict([('GCU','A'), ('GCC','A'), ('GCA','A'), ('GCG','A'),
+                 ('UGU','C'), ('UGC','C'),
+                 ('GAU','D'), ('GAC','D'),
+                 ('GAA','E'), ('GAG','E'),
+                 ('CGU','R'), ('CGC','R'), ('CGA','R'), ('CGG','R'), ('AGA','R'), ('AGG','R'),
+                 ('UUU','F'), ('UUC','F'),
+                 ('GGU','G'), ('GGC','G'), ('GGA','G'), ('GGG','G'),
+                 ('CAU','H'), ('CAC','H'),
+                 ('AAA','K'), ('AAG','K'),
+                 ('UUA','L'), ('UUG','L'), ('CUU','L'), ('CUC','L'), ('CUA','L'), ('CUG','L'),
+                 ('AUU','I'), ('AUC','I'), ('AUA','I'),
+                 ('AUG','M'),
+                 ('AAU','N'), ('AAC','N'),
+                 ('CCU','P'), ('CCC','P'), ('CCA','P'), ('CCG','P'),
+                 ('CAA','Q'), ('CAG','Q'),
+                 ('UCU','S'), ('UCC','S'), ('UCA','S'), ('UCG','S'), ('AGU','S'), ('AGC','S'),
+                 ('ACU','T'), ('ACC','T'), ('ACA','T'), ('ACG','T'),
+                 ('GUU','V'), ('GUC','V'), ('GUA','V'), ('GUG','V'),
+                 ('UGG','W'),
+                 ('UAU','Y'), ('UAC','Y'),
                  ('UAA','X'), ('UGA','X'), ('UAG','X')])
 
 translate = lambda seq: ''.join([
-    CODON_AA_MAP[seq[s:s+3]] if seq[s:s+3] in CODON_AA_MAP else 'X'
-    for s in range(0,len(seq),3)
+    (CODON_AA_MAP[seq[s:s+3]] if seq[s:s+3] in CODON_AA_MAP else '*')
+    for s in range(0, len(seq), 3)
 ])
 
 
