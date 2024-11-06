@@ -628,12 +628,13 @@ class Data:
             for frame_i in range(N_FRAMES):
                 if local_start_codon_map[pos_i, frame_i] > 0:
                     for stop_i in range(pos_i, n_triplets):
-                        if local_stop_codon_map[stop_i, frame_i] > 0 and stop_i - pos_i >= 5:
-                            candidate_cds.append(CandidateCDS(
-                                frame=frame_i,
-                                start=pos_i,
-                                stop=stop_i
-                            ))
+                        if local_stop_codon_map[stop_i, frame_i] > 0:
+                            if stop_i - pos_i >= 5:
+                                candidate_cds.append(CandidateCDS(
+                                    frame=frame_i,
+                                    start=pos_i,
+                                    stop=stop_i
+                                ))
                             break
 
         return candidate_cds
