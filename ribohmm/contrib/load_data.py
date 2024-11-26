@@ -688,11 +688,13 @@ def load_gtf(filename, use_cache=True, cache_dir=None) -> Dict[str, Transcript]:
                     else:
                         exon_cache.append((add_transcript_id, start, stop))
                 elif add_transcript_id not in transcripts and gtf_record[2].strip() == 'transcript':
-                    transcripts[add_transcript_id] = Transcript(
+                    t = Transcript(
                         chrom, start, stop,
                         strand=add_strand,
                         attrs=attrs
                     )
+                    t.id = add_transcript_id
+                    transcripts[add_transcript_id] = t
 
     # Apply exon cache
     for exon_spec in exon_cache:
