@@ -152,27 +152,41 @@ def write_inferred_cds(transcript, state, frame, rna_sequence):
     return towrite
 
 
-def infer_on_transcripts(primary_strand, transcripts: List[Transcript], ribo_track, genome_track, rnaseq_track,
-                         mappability_tabix_prefix, infer_algorithm, model_params):
+def infer_on_transcripts(transcripts: List[Transcript], ribo_track, genome_track, rnaseq_track,
+                         mappability_tabix_prefix, infer_algorithm, model_params, primary_strand=None):
+    """
+    Args:
+        transcripts:
+        ribo_track:
+        genome_track:
+        rnaseq_track:
+        mappability_tabix_prefix:
+        infer_algorithm:
+        model_params:
+        primary_strand: when None, then we are only using given strand info. If either + or -, then force all
+            Transcripts to be that strand
+
+    Returns:
+
+    """
     logger.info('!!!!!! Starting infer_on_transcripts()')
-    if primary_strand not in {'+', '-'}:
-        raise ValueError('primary_strand must be either + or -')
-    opposite_strand = '-' if primary_strand == '+' else '+'
+    if primary_strand is not None:
+        if primary_strand not in {'+', '-'}:
+            raise ValueError('primary_strand must be either + or -')
+        opposite_strand = '-' if primary_strand == '+' else '+'
 
-    # Only for debugging ORFs
-    # transcripts = [t for t in transcripts if t.id in {
-    #     'STRG.6369.3',
-    #     'STRG.6877.1',
-    #     'STRG.6285.11',
-    #     'STRG.6377.18',
-    #     'STRG.6667.5'
-    # }]
-
-    logger.info(f'Looking at transcript {primary_strand} strands')
-    for t in transcripts:
-        if t.strand == opposite_strand:
-            t.mask = t.mask[::-1]
-            t.strand = primary_strand
+        logger.info(f'Looking at transcript {primary_strand} strands')
+        for t in transcripts:
+            if t.strand == opposite_strand:
+                t.mask = t.mask[::-1]
+                t.strand = primary_strand
+    else:
+        # Filter out transcripts which don't have strand info
+        for no_strand in [t for t in transcripts if t.strand not in {'+', '-'}]:
+            print('Warning: Transcript {} did not have strand info and will not be included in the analysis'.format(
+                no_strand.id
+            ))
+        transcripts = [t for t in transcripts if t.strand in {'+', '-'}]
 
     # check if all exons have at least 5 footprints
     exon_counts = ribo_track.get_exon_total_counts(transcripts)
@@ -200,9 +214,9 @@ def infer_on_transcripts(primary_strand, transcripts: List[Transcript], ribo_tra
             rna_counts = np.ones((len(transcripts),), dtype='float')
         else:
             rna_counts = rnaseq_track.get_total_counts(transcripts)
-        import pickle
-        with open('rnaseq_lengths.pkl', 'wb') as out:
-            pickle.dump(rna_counts, out)
+        # import pickle
+        # with open('rnaseq_lengths.pkl', 'wb') as out:
+        #     pickle.dump(rna_counts, out)
 
         # load mappability of transcripts; transform mappability to missingness
         logger.info('Loading mappability')
@@ -301,7 +315,8 @@ def infer_CDS(
     dev_restrict_transcripts_to=None,
     dev_output_debug_data=None,
     n_procs=1,
-    n_transcripts_per_proc=10
+    n_transcripts_per_proc=10,
+    ignore_strand_info=False
 ):
     logger.info('Starting infer_CDS()')
     N_TRANSCRIPTS = dev_restrict_transcripts_to  # Set to None to allow all transcripts
@@ -356,10 +371,11 @@ def infer_CDS(
             tnames: List[str] = transcript_names[n*n_transcripts_per_proc:(n+1)*n_transcripts_per_proc]
             transcripts_chunk: List[Transcript] = [transcript_models[name] for name in tnames]
 
-            for infer_strand in ['+', '-']:
+            primary_strands = ['+', '-'] if ignore_strand_info else [None]
+            for primary_strand in primary_strands:
                 futs.append(executor.submit(
                     infer_on_transcripts,
-                    primary_strand=infer_strand,
+                    primary_strand=primary_strand,
                     transcripts=transcripts_chunk,
                     ribo_track=ribo_track,
                     genome_track=genome_track,
