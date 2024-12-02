@@ -118,6 +118,7 @@ def populate_parser(parser: argparse.ArgumentParser):
                              help='Path to JSON file of model parameters generated with \'ribohmm learn-model\'')
     # TODO Make the choices from some contstant pick list
     infer_group.add_argument('--infer-algorithm', choices=('viterbi', 'discovery'), default='viterbi')
+    infer_group.add_argument('--ignore-strand-information', action='store_true')
     infer_group.add_argument('--dev-restrict-transcripts-to', type=int)
     infer_group.add_argument('--dev-output-debug-data')
     infer_group.add_argument('--n-procs', type=int, default=1)
@@ -246,7 +247,8 @@ def execute_ribohmm(args, learn=True, infer=True):
             dev_restrict_transcripts_to=args['dev_restrict_transcripts_to'],
             dev_output_debug_data=args['dev_output_debug_data'],
             n_procs=args['n_procs'],
-            n_transcripts_per_proc=args['n_transcripts_per_proc']
+            n_transcripts_per_proc=args['n_transcripts_per_proc'],
+            ignore_strand_info=args['ignore_strand_information']
         )
 
     # Print out total runtime

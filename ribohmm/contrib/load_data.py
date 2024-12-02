@@ -674,27 +674,19 @@ def load_gtf(filename, use_cache=True, cache_dir=None) -> Dict[str, Transcript]:
             strand = gtf_record[6].strip()
 
             transcript_id = attrs.get('transcript_id')
-            # If the strand is known add only that strand, but if it is unknown add both
-            if strand in {'+', '-'}:
-                add_strands = [(strand, transcript_id)]
-            else:
-                add_strands = [('+', f'{transcript_id}-pos-strand'), ('-', f'{transcript_id}-neg-strand')]
 
-            # For each strand of this transcript, add a Transcript or exon to a Transcript
-            for add_strand, add_transcript_id in add_strands:
-                if gtf_record[2].strip() == 'exon':
-                    if add_transcript_id in transcripts:
-                        transcripts[add_transcript_id].add_exon(start, stop)
-                    else:
-                        exon_cache.append((add_transcript_id, start, stop))
-                elif add_transcript_id not in transcripts and gtf_record[2].strip() == 'transcript':
-                    t = Transcript(
-                        chrom, start, stop,
-                        strand=add_strand,
-                        attrs=attrs
-                    )
-                    t.id = add_transcript_id
-                    transcripts[add_transcript_id] = t
+            # Add a Transcript or exon to a Transcript
+            if gtf_record[2].strip() == 'exon':
+                if transcript_id in transcripts:
+                    transcripts[transcript_id].add_exon(start, stop)
+                else:
+                    exon_cache.append((transcript_id, start, stop))
+            elif transcript_id not in transcripts and gtf_record[2].strip() == 'transcript':
+                transcripts[transcript_id] = Transcript(
+                    chrom, start, stop,
+                    strand=strand,
+                    attrs=attrs
+                )
 
     # Apply exon cache
     for exon_spec in exon_cache:
