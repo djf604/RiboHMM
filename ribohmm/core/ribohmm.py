@@ -111,9 +111,9 @@ class Data:
 
         # Save raw riboseq pileup
         self.raw_riboseq_pileup = deepcopy(riboseq_pileup)
-        import pickle
-        with open('riboseq_lengths.pkl', 'wb') as out:
-            pickle.dump(riboseq_pileup, out)
+        # import pickle
+        # with open('riboseq_lengths.pkl', 'wb') as out:
+        #     pickle.dump(riboseq_pileup, out)
 
         # length of transcript
         self.L = self.transcript_length = obs.shape[0]
@@ -407,6 +407,9 @@ class Data:
 
         The start codon to stop codon is called the ORF. Including all the UTR regions is the full transcript.
 
+        RMSE includes only the ORF. That's from the TIS state to the 3'UTS- state, inclusive.
+        ssRMSE includes only the ORF, but also takes the average of all TES states as a single TES entry.
+
         :param candidate_orfs:
         :param emission:
         :return:
@@ -425,15 +428,16 @@ class Data:
         all_candidate_cds = all_candidate_cds[0] + all_candidate_cds[1] + all_candidate_cds[2]
         # Iterate through all ORFs
         for candidate_orf in all_candidate_cds:
-            footprint_errors_with_utr = list()  # Including all the UTR
+            # footprint_errors_with_utr = list()  # Including all the UTR
             footprint_errors_only_orf = list()  # Only from start to stop, inclusive
-            by_triplet_error_with_utr = dict()
+            # by_triplet_error_with_utr = dict()
             by_triplet_error_only_orf = dict()
             # Get the index of the start and stop triplet
             orf_start_triplet, orf_stop_triplet = self.compute_minimal_ORF(candidate_orf)
             orf_size = orf_stop_triplet - orf_start_triplet + 1  # TODO Is this the correct formula?
             triplets_dropped_for_mappability = list()
             ORF_pileups = dict()
+            state_diagram = [2, 3] + [4] * (orf_size - 5) + [5, 6, 7]
 
             # Iterate over each footprint length in each ORF
             for footprint_length_i in range(self.n_footprint_lengths):
@@ -443,138 +447,205 @@ class Data:
                 observed_start = candidate_orf.start
                 observed_stop = candidate_orf.stop
 
-                # with_utr_square_error = np.zeros(shape=(self.n_triplets, 3))
-                # only_orf_square_error = np.zeros(shape=(self.n_triplets, 3))
-                with_utr_square_error = list()
-                only_orf_square_error = list()
-                tes_buffer = list()
-                n_triplets_dropped_for_mappability = 0
-                pileups = list()
-                # Iterate over each triplet in this footprint length for this ORF
-                for triplet_i in range(self.n_triplets):
-                    # If any bases in this triplet are unmappable, drop the whole thing
-                    if not fully_mappable_triplets[footprint_length_i, triplet_i]:
-                        n_triplets_dropped_for_mappability += 1
-                        continue
+                # Get the pileup matrix, which will be 2 dimensional [n_triplets, 3]
+                pileups = self.raw_riboseq_pileup[observed_frame_i:, footprint_length_i]
+                # Chop base pairs off the end until we are divisible by 3
+                while len(pileups) % 3 in {1, 2}:
+                    pileups = pileups[:-1]
+                # Reshape into desired form [n_triplets, 3]
+                pileups = pileups.reshape(-1, 3)
 
-                    # If all bases are mappable, then continue on
-                    # triplet_state is an int 0-8 for each of the 9 states
-                    triplet_state = get_triplet_state(triplet_i, start_pos=observed_start, stop_pos=observed_stop)
-                    # Get the expected pileup proportion for this state, is a 1-d array of size 3
-                    state_expected = np.exp(expected[triplet_state])
+                # Pull out just the ORF from both pileups and expected emissions
+                pileups = pileups[observed_start:observed_stop + 1]
+                # expected = expected[observed_start:observed_stop + 1]
+                expected = np.exp(expected[state_diagram])
 
-                    # If we're normalizing the TES, ignore any of the UTS regions
-                    if normalize_tes and triplet_state in {States.ST_5PRIME_UTS, States.ST_3PRIME_UTS}:
-                        continue
+                # Remove any triplets with 1 or more unmappable positions
+                orf_mappability = fully_mappable_triplets[footprint_length_i,
+                                                          observed_start:observed_stop + 1].astype(bool)
+                pre_mappability_count = pileups.shape[0]
+                pileups = pileups[orf_mappability]
+                expected = expected[orf_mappability]
+                post_mappability_count = pileups.shape[0]
 
-                    # Get observed pileup proportions
-                    # Will be a 1-d array of size 3
-                    triplet_positions = slice(triplet_i * 3 + observed_frame_i, 3 * triplet_i + observed_frame_i + 3)
-                    triplet_pileups = self.riboseq_pileup[triplet_positions, footprint_length_i]
-                    if triplet_pileups.sum() == 0:
-                        # If there are any unmappable bases in a triplet, drop the whole triplet from
-                        # all future calculations
-                        triplet_proportions = np.ones(3) / 3  # TODO Should this be all 0s?
-                    else:
-                        triplet_proportions = triplet_pileups / triplet_pileups.sum()
+                # Find pileup proportions
+                pileups_proportions = np.nan_to_num(
+                    pileups / np.tile(pileups.sum(axis=1), (3, 1)).transpose(),
+                    nan=1/3
+                )
 
-                    # The square difference between each of the 3 base positions
-                    # square_error is a 1-d array of size 3
-                    square_error = (triplet_proportions - state_expected) ** 2
+                # Find squared error
+                squared_error = (pileups_proportions - expected) ** 2
 
-                    if normalize_tes and triplet_state == States.ST_TES:
-                        tes_buffer.append(list(square_error))
-                    else:
-                        with_utr_square_error.append(list(square_error))
-
-                        if orf_start_triplet <= triplet_i <= orf_stop_triplet:
-                            pileups.extend(list(triplet_pileups))
-                            only_orf_square_error.append(list(square_error))
-
-                # Record the number of triplet dropped for mappability reasons
-                triplets_dropped_for_mappability.append(n_triplets_dropped_for_mappability)
-
-                # Record the pileups for each footprint
-                ORF_pileups[footprint_length_i] = np.sum(pileups)
-
-                # If normalizing TES, take the mean here and append to the other Square Errors
-                if normalize_tes:
-                    # print('&&&&&&&&&&&&&&&&&&&&&&')
-                    # print(tes_buffer)
-                    if tes_buffer:
-                        tes_buffer_mean = np.array(tes_buffer).mean(axis=0).tolist()
-                    else:
-                        tes_buffer_mean = [1/3, 1/3, 1/3]
-                    # print(tes_buffer_mean)
-                    with_utr_square_error.append(tes_buffer_mean)
-                    # print(with_utr_square_error)
-                    only_orf_square_error.append(tes_buffer_mean)
-
-                # Convert error data into numpy array for processing
-                # Array is size (n_triplets, 3) where 3 is for each base pair error in the triplet
-                with_utr_square_error = np.array(with_utr_square_error)
-                # print(type(with_utr_square_error))
-                # print(with_utr_square_error.shape)
-                # print(with_utr_square_error)
-                if only_orf_square_error:
-                    only_orf_square_error = np.array(only_orf_square_error)
-                else:
-                    only_orf_square_error = np.zeros(shape=(1, 3))
-
-                # Get the error for each triplet, summing the error of each base pair
-                # by_triplet_error_with_utr goes from shape of (n_triplet, 3) to (n_triplets,)
+                # Add error sum of base pair in each triplet
+                # Shape goes from (n_triplets, 3) to (n_triplets,)
                 try:
-                    by_triplet_error_with_utr[footprint_length_i] = np.sum(with_utr_square_error, axis=1)
+                    by_triplet_error_only_orf[footprint_length_i] = np.sum(squared_error, axis=1)
                 except:
-                    # print(self.n_triplets)
-                    # print(observed_start)
-                    # print(observed_stop)
-                    # print('999999999999999')
-                    # print(with_utr_square_error)
-                    by_triplet_error_with_utr[footprint_length_i] = -1
-                    # print(self.get_state_sequence(self.n_triplets, observed_start, observed_stop))
-                    # raise
-                try:
-                    by_triplet_error_only_orf[footprint_length_i] = np.sum(only_orf_square_error, axis=1)
-                except:
-                    # print('888888888888888888888')
-                    # print(with_utr_square_error)
                     by_triplet_error_only_orf[footprint_length_i] = -1
 
+                # Add ORF pileups
+                ORF_pileups[footprint_length_i] = np.sum(pileups)
 
-                # Calculate the RM part of the RMSE
-                # with_utr_square_error is size (n_triplets, 3), but find mean of all values regardless of shape
-                # Then take the square root
-                # orf_rmse = np.sqrt(np.sum(with_utr_square_error) / (self.n_triplets * 2))
-                # orf_rmse = np.sqrt(np.sum(with_utr_square_error) / (with_utr_square_error.shape[0] * 3))
-                orf_rmse = np.sqrt(np.mean(with_utr_square_error))
-                # orf_rmse_only_orf = np.sqrt(np.sum(only_orf_square_error) / (orf_size * 2))
-                orf_rmse_only_orf = np.sqrt(np.sum(only_orf_square_error) / (only_orf_square_error.shape[0] * 3))
+                # If normalizing TES, find mean of all TES
+                if normalize_tes:
+                    tes_states = squared_error[2:-3]
+                    tes_mean_squared_error = np.mean(tes_states, axis=0)
+                    squared_error = np.concatenate([
+                        squared_error[:2],
+                        tes_mean_squared_error,
+                        squared_error[-3:]
+                    ])
 
-                # Record the RMSE for this footprint length
-                footprint_errors_with_utr.append(orf_rmse)
-                footprint_errors_only_orf.append(orf_rmse_only_orf)
+                # Find RMSE for this footprint length
+                rmse = np.sqrt(np.mean(squared_error))
+                footprint_errors_only_orf.append(rmse)
 
-            # Record the overall RMSE as the mean of each footprint RMSE
-            orf_error_with_utr = np.mean(footprint_errors_with_utr)
+            # Take the mean of all RMSE over all footprints lengths
             orf_error_only_orf = np.mean(footprint_errors_only_orf)
-            # print(f'Is mean tes: {normalize_tes}')
-            # print(type(candidate_orf))
-            # print(type(orf_error_with_utr))
-            # print(type(by_triplet_error_with_utr))
-            # print(type(by_triplet_error_with_utr[0]))
-            # print(type(orf_error_only_orf))
-            # print(type(by_triplet_error_only_orf))
-            # print(type(by_triplet_error_only_orf[0]))
-            # print(type(triplets_dropped_for_mappability))
-            # print(type(ORF_pileups))
-            if normalize_tes:
-                self.ssrmses[candidate_orf.frame].append(orf_error_only_orf)
-            else:
-                self.rmses[candidate_orf.frame].append(orf_error_with_utr)
-            orfs_with_errors.append((candidate_orf, orf_error_with_utr, by_triplet_error_with_utr,
-                                     orf_error_only_orf, by_triplet_error_only_orf, triplets_dropped_for_mappability,
-                                     ORF_pileups))
+
+            orfs_with_errors.append((
+                candidate_orf,
+                orf_error_only_orf,
+                by_triplet_error_only_orf,
+                triplets_dropped_for_mappability,
+                ORF_pileups
+            ))
+
+
+            #     # with_utr_square_error = np.zeros(shape=(self.n_triplets, 3))
+            #     # only_orf_square_error = np.zeros(shape=(self.n_triplets, 3))
+            #     # with_utr_square_error = list()
+            #     only_orf_square_error = list()
+            #     tes_buffer = list()
+            #     n_triplets_dropped_for_mappability = 0
+            #     pileups = list()
+            #     # Iterate over each triplet in this footprint length for this ORF
+            #     for triplet_i in range(self.n_triplets):
+            #         # If any bases in this triplet are unmappable, drop the whole thing
+            #         if not fully_mappable_triplets[footprint_length_i, triplet_i]:
+            #             n_triplets_dropped_for_mappability += 1
+            #             continue
+            #
+            #         # If all bases are mappable, then continue on
+            #         # triplet_state is an int 0-8 for each of the 9 states
+            #         triplet_state = get_triplet_state(triplet_i, start_pos=observed_start, stop_pos=observed_stop)
+            #         # Get the expected pileup proportion for this state, is a 1-d array of size 3
+            #         state_expected = np.exp(expected[triplet_state])
+            #
+            #         # If we're normalizing the TES, ignore any of the UTS regions
+            #         if normalize_tes and triplet_state in {States.ST_5PRIME_UTS, States.ST_3PRIME_UTS}:
+            #             continue
+            #
+            #         # Get observed pileup proportions
+            #         # Will be a 1-d array of size 3
+            #         triplet_positions = slice(triplet_i * 3 + observed_frame_i, 3 * triplet_i + observed_frame_i + 3)
+            #         triplet_pileups = self.riboseq_pileup[triplet_positions, footprint_length_i]
+            #         if triplet_pileups.sum() == 0:
+            #             # If there are any unmappable bases in a triplet, drop the whole triplet from
+            #             # all future calculations
+            #             triplet_proportions = np.ones(3) / 3  # TODO Should this be all 0s?
+            #         else:
+            #             triplet_proportions = triplet_pileups / triplet_pileups.sum()
+            #
+            #         # The square difference between each of the 3 base positions
+            #         # square_error is a 1-d array of size 3
+            #         square_error = (triplet_proportions - state_expected) ** 2
+            #
+            #         if normalize_tes and triplet_state == States.ST_TES:
+            #             tes_buffer.append(list(square_error))
+            #         else:
+            #             with_utr_square_error.append(list(square_error))
+            #
+            #             if orf_start_triplet <= triplet_i <= orf_stop_triplet:
+            #                 pileups.extend(list(triplet_pileups))
+            #                 only_orf_square_error.append(list(square_error))
+            #
+            #     # Record the number of triplet dropped for mappability reasons
+            #     triplets_dropped_for_mappability.append(n_triplets_dropped_for_mappability)
+            #
+            #     # Record the pileups for each footprint
+            #     ORF_pileups[footprint_length_i] = np.sum(pileups)
+            #
+            #     # If normalizing TES, take the mean here and append to the other Square Errors
+            #     if normalize_tes:
+            #         # print('&&&&&&&&&&&&&&&&&&&&&&')
+            #         # print(tes_buffer)
+            #         if tes_buffer:
+            #             tes_buffer_mean = np.array(tes_buffer).mean(axis=0).tolist()
+            #         else:
+            #             tes_buffer_mean = [1/3, 1/3, 1/3]
+            #         # print(tes_buffer_mean)
+            #         with_utr_square_error.append(tes_buffer_mean)
+            #         # print(with_utr_square_error)
+            #         only_orf_square_error.append(tes_buffer_mean)
+            #
+            #     # Convert error data into numpy array for processing
+            #     # Array is size (n_triplets, 3) where 3 is for each base pair error in the triplet
+            #     with_utr_square_error = np.array(with_utr_square_error)
+            #     # print(type(with_utr_square_error))
+            #     # print(with_utr_square_error.shape)
+            #     # print(with_utr_square_error)
+            #     if only_orf_square_error:
+            #         only_orf_square_error = np.array(only_orf_square_error)
+            #     else:
+            #         only_orf_square_error = np.zeros(shape=(1, 3))
+            #
+            #     # Get the error for each triplet, summing the error of each base pair
+            #     # by_triplet_error_with_utr goes from shape of (n_triplet, 3) to (n_triplets,)
+            #     try:
+            #         by_triplet_error_with_utr[footprint_length_i] = np.sum(with_utr_square_error, axis=1)
+            #     except:
+            #         # print(self.n_triplets)
+            #         # print(observed_start)
+            #         # print(observed_stop)
+            #         # print('999999999999999')
+            #         # print(with_utr_square_error)
+            #         by_triplet_error_with_utr[footprint_length_i] = -1
+            #         # print(self.get_state_sequence(self.n_triplets, observed_start, observed_stop))
+            #         # raise
+            #     try:
+            #         by_triplet_error_only_orf[footprint_length_i] = np.sum(only_orf_square_error, axis=1)
+            #     except:
+            #         # print('888888888888888888888')
+            #         # print(with_utr_square_error)
+            #         by_triplet_error_only_orf[footprint_length_i] = -1
+            #
+            #
+            #     # Calculate the RM part of the RMSE
+            #     # with_utr_square_error is size (n_triplets, 3), but find mean of all values regardless of shape
+            #     # Then take the square root
+            #     # orf_rmse = np.sqrt(np.sum(with_utr_square_error) / (self.n_triplets * 2))
+            #     # orf_rmse = np.sqrt(np.sum(with_utr_square_error) / (with_utr_square_error.shape[0] * 3))
+            #     orf_rmse = np.sqrt(np.mean(with_utr_square_error))
+            #     # orf_rmse_only_orf = np.sqrt(np.sum(only_orf_square_error) / (orf_size * 2))
+            #     orf_rmse_only_orf = np.sqrt(np.sum(only_orf_square_error) / (only_orf_square_error.shape[0] * 3))
+            #
+            #     # Record the RMSE for this footprint length
+            #     footprint_errors_with_utr.append(orf_rmse)
+            #     footprint_errors_only_orf.append(orf_rmse_only_orf)
+            #
+            # # Record the overall RMSE as the mean of each footprint RMSE
+            # orf_error_with_utr = np.mean(footprint_errors_with_utr)
+            # orf_error_only_orf = np.mean(footprint_errors_only_orf)
+            # # print(f'Is mean tes: {normalize_tes}')
+            # # print(type(candidate_orf))
+            # # print(type(orf_error_with_utr))
+            # # print(type(by_triplet_error_with_utr))
+            # # print(type(by_triplet_error_with_utr[0]))
+            # # print(type(orf_error_only_orf))
+            # # print(type(by_triplet_error_only_orf))
+            # # print(type(by_triplet_error_only_orf[0]))
+            # # print(type(triplets_dropped_for_mappability))
+            # # print(type(ORF_pileups))
+            # if normalize_tes:
+            #     self.ssrmses[candidate_orf.frame].append(orf_error_only_orf)
+            # else:
+            #     self.rmses[candidate_orf.frame].append(orf_error_with_utr)
+            # orfs_with_errors.append((candidate_orf, orf_error_with_utr, by_triplet_error_with_utr,
+            #                          orf_error_only_orf, by_triplet_error_only_orf, triplets_dropped_for_mappability,
+            #                          ORF_pileups))
+
 
         if not return_sorted:
             return orfs_with_errors
@@ -2437,12 +2508,12 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             emission_errors_normalized_tes = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, normalize_tes=True)
             with open('ssrmse.pkl', 'wb') as out:
                 pickle.dump(emission_errors_normalized_tes, out)
-            ORF_EMISSION_ERROR_MEAN_WITH_UTR = 1
-            ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR = 2
-            ORF_EMISSION_ERROR_MEAN_ONLY_ORF = 3
-            ORF_EMISSION_ERROR_BY_TRIPLET_SSE_ONLY_ORF = 4
-            ORF_EMISSION_ERROR_TRIPLETS_DROPPED_FOR_MAPPABILITY = 5
-            ORF_EMISSION_ERROR_ORF_PILEUPS = 5
+            # ORF_EMISSION_ERROR_MEAN_WITH_UTR = 1
+            # ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR = 2
+            ORF_EMISSION_ERROR_MEAN_ONLY_ORF = 1
+            # ORF_EMISSION_ERROR_BY_TRIPLET_SSE_ONLY_ORF = 4
+            ORF_EMISSION_ERROR_TRIPLETS_DROPPED_FOR_MAPPABILITY = 3
+            # ORF_EMISSION_ERROR_ORF_PILEUPS = 5
 
             orf_periodicity_likelihoods, orf_occupancy_likelihoods = transcript.data_obj.compute_minimal_ORF_log_probability()
 
@@ -2543,7 +2614,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
 
                     # For debug log emission_errors_normalized_tes
                     'orf_emission_error': {
-                        'mean_rmse_with_UTR': orf_emission_error[ORF_EMISSION_ERROR_MEAN_WITH_UTR],
+                        # 'mean_rmse_with_UTR': orf_emission_error[ORF_EMISSION_ERROR_MEAN_WITH_UTR],
                         # 'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR],
                         'mean_rmse_only_ORF': orf_emission_error[ORF_EMISSION_ERROR_MEAN_ONLY_ORF],
                         # 'by_triplet_sse_only_ORF': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_ONLY_ORF]
@@ -2551,7 +2622,7 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                         'triplets_dropped_for_mappability': orf_emission_error[ORF_EMISSION_ERROR_TRIPLETS_DROPPED_FOR_MAPPABILITY]
                     },
                     'orf_emission_error_normalized_tes': {
-                        'mean_rmse_with_UTR': orf_emission_error_normalized_tes[ORF_EMISSION_ERROR_MEAN_WITH_UTR],
+                        # 'mean_rmse_with_UTR': orf_emission_error_normalized_tes[ORF_EMISSION_ERROR_MEAN_WITH_UTR],
                         # 'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR],
                         'mean_rmse_only_ORF': orf_emission_error_normalized_tes[ORF_EMISSION_ERROR_MEAN_ONLY_ORF],
                         # 'by_triplet_sse_only_ORF': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_ONLY_ORF]
