@@ -112,7 +112,7 @@ following the learning step. This step can also be run directly by giving the ``
 providing a model parameters JSON.
 
 If run directly, this step generally needs as input the same set as the learning step, with the addition 
-of the a model parameters JSON, which is often called ``model_parameters.json``.
+of the model parameters JSON, which is often called ``model_parameters.json``.
 
 An example:
 ```
@@ -126,6 +126,17 @@ ribohmm --infer-only --reference ref/genome.fa --transcriptome ref/transcriptome
 
 This produces inside of the ``run001`` directory a file called ``inferred_CDS.bed``, which contains 
 the inferred translated sequences.
+
+## Providing a Custom Kozak Model
+Though a Kozak model is included with RiboHMM and is suitable for use in humans, a custom Kozak model can be supplied 
+using the `--kozak-model` argument.
+
+The custom Kozak model is expected to be in the `.npz` format, which is a numpy compressed file. It is expected to have 
+two arrays, one called `freq` and one called `altfreq`. Each must be a 2-dimensional array of shape (4, 13) and must be 
+position weight matrices where the sum of each column is 1. The first row represents the proportion of the A base, the 
+second row the proportion of the U base, the third row the G base, and the fourth row the C base.
+
+The `freq` array is the observed frequencies of the Kozak model, and `altfreq` is the background frequencies.
 
 ## Support
 If errors are encountered, please open an issue on this repository with a detailed bug report.
