@@ -18,7 +18,7 @@ setup(
             'ribohmm-utils = ribohmm:execute_utils_from_command_line'
         ]
     },
-    install_requires=['pysam', 'cvxopt', 'numpy', 'scipy', 'numba', 'dill', 'pandas'],
+    install_requires=['pysam', 'cvxopt', 'numpy', 'scipy', 'dill', 'pandas'],
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Environment :: Console',
