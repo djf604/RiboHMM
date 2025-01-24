@@ -282,20 +282,39 @@ def infer_on_transcripts(transcripts: List[Transcript], ribo_track, genome_track
                 for frame_i in range(N_FRAMES):
                     for orf_i, orf_posterior in enumerate(orf_posterior_matrix[frame_i]):
                         candidate_cds = candidate_cds_matrix[frame_i][orf_i]
-                        rmse = transcript.data_obj.rmses[frame_i][orf_i]
-                        ssrmse = transcript.data_obj.ssrmses[frame_i][orf_i]
-                        record = write_inferred_cds_discovery_mode(
-                            transcript=transcript,
-                            orf_i=orf_i,
-                            candidate_cds=candidate_cds,
-                            orf_posterior=orf_posterior,
-                            # This is the same formula used in State.decode()
-                            orf_start=candidate_cds.start * 3 + candidate_cds.frame,
-                            orf_stop=candidate_cds.stop * 3 + candidate_cds.frame,
-                            rmse=rmse,
-                            ssrmse=ssrmse
-                        )
-                        records_to_write.append(record)
+                        try:
+                            rmse = transcript.data_obj.rmses[frame_i][orf_i]
+                        except:
+                            print('RMSE')
+                            print('transcript: {}'.format(transcript.id))
+                            print('frame_i: {}'.format(frame_i))
+                            print('orf_i: {}'.format(orf_i))
+                            print(transcript.data_obj.rmses)
+                            rmse = -1
+                        try:
+                            ssrmse = transcript.data_obj.ssrmses[frame_i][orf_i]
+                        except:
+                            print('SSRMSE')
+                            print('transcript: {}'.format(transcript.id))
+                            print('frame_i: {}'.format(frame_i))
+                            print('orf_i: {}'.format(orf_i))
+                            print(transcript.data_obj.ssrmses)
+                            ssrmse = -1
+                        try:
+                            record = write_inferred_cds_discovery_mode(
+                                transcript=transcript,
+                                orf_i=orf_i,
+                                candidate_cds=candidate_cds,
+                                orf_posterior=orf_posterior,
+                                # This is the same formula used in State.decode()
+                                orf_start=candidate_cds.start * 3 + candidate_cds.frame,
+                                orf_stop=candidate_cds.stop * 3 + candidate_cds.frame,
+                                rmse=rmse,
+                                ssrmse=ssrmse
+                            )
+                            records_to_write.append(record)
+                        except:
+                            print('Could not write record for {} ORF {}'.format(transcript.id, orf_i))
     return records_to_write, discovery_mode_debug_metadata
 
 

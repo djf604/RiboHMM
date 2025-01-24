@@ -22,6 +22,9 @@ solvers.options['show_progress'] = False
 # The triplet position is within the transcript, where the index starts at 0
 CandidateCDS = namedtuple('CandidateCDS', 'frame start stop')
 
+# Remove this once we're done with debugging RMSE
+n_orfs_blank, n_orfs_total = [0, 0, 0, 0], [0, 0, 0, 0]
+
 def logistic(x):
     return 1 / (1 + np.exp(x))
 
@@ -400,7 +403,7 @@ class Data:
         return orf_periodicity_likelihoods, orf_occupancy_likelihoods
 
 
-    def compute_observed_pileup_deviation(self, emission, return_sorted=True, normalize_tes=False):
+    def compute_observed_pileup_deviation(self, emission, return_sorted=True, normalize_tes=False, transcript_obj=None):
         """
         For each ORF, for each read length, for the first two base positions in each triplet, computes a
         difference between observed and expected pileup
@@ -416,17 +419,22 @@ class Data:
         """
         # Identify only triplets which are fully mappable to calculate RMSE
         # fully_mappable_triplets [each footprint length, each triplet]
+        # print('************************************************* normalize TES {}'.format(normalize_tes))
         fully_mappable_triplets = np.zeros((self.n_footprint_lengths, self.n_triplets))
         for footprint_length_i in range(self.n_footprint_lengths):
             for i in range(self.n_triplets):
                 fully_mappable_triplets[footprint_length_i, i] = np.all(self.is_pos_mappable[i * 3: (i * 3) + 3, footprint_length_i])
 
         # Get all the ORFs for this transcript
+
         orfs_with_errors = list()
         # for candidate_orf in self.get_candidate_cds_simple():
         _, all_candidate_cds = self.orf_state_matrix()
         all_candidate_cds = all_candidate_cds[0] + all_candidate_cds[1] + all_candidate_cds[2]
         # Iterate through all ORFs
+        n_blank, n_total = 0, 0
+        extra_debug = list()
+        printed_frame = set()
         for candidate_orf in all_candidate_cds:
             # footprint_errors_with_utr = list()  # Including all the UTR
             footprint_errors_only_orf = list()  # Only from start to stop, inclusive
@@ -441,6 +449,8 @@ class Data:
 
             # Iterate over each footprint length in each ORF
             for footprint_length_i in range(self.n_footprint_lengths):
+                n_total += 1
+                # print('&&&&&&&&&&&&&&&&&&&&&&&&&')
                 # expected shape is [9, 3]. 1st dim is the state, 2nd dim is the three base positions
                 expected = emission['logperiodicity'][footprint_length_i]
                 observed_frame_i = candidate_orf.frame
@@ -449,6 +459,7 @@ class Data:
 
                 # Get the pileup matrix, which will be 2 dimensional [n_triplets, 3]
                 pileups = self.raw_riboseq_pileup[observed_frame_i:, footprint_length_i]
+                raw_pileup_length = pileups.shape[0]
                 # Chop base pairs off the end until we are divisible by 3
                 while len(pileups) % 3 in {1, 2}:
                     pileups = pileups[:-1]
@@ -456,16 +467,45 @@ class Data:
                 pileups = pileups.reshape(-1, 3)
 
                 # Pull out just the ORF from both pileups and expected emissions
+                pileups2 = pileups[:]
                 pileups = pileups[observed_start:observed_stop + 1]
                 # expected = expected[observed_start:observed_stop + 1]
                 expected = np.exp(expected[state_diagram])
 
                 # Remove any triplets with 1 or more unmappable positions
                 orf_mappability = fully_mappable_triplets[footprint_length_i,
-                                                          observed_start:observed_stop + 1].astype(bool)
+                                                          observed_start:min(observed_stop + 1, pileups2.shape[0] - 1)].astype(bool)
+                n_orfs_total[footprint_length_i] += 1
                 pre_mappability_count = pileups.shape[0]
-                pileups = pileups[orf_mappability]
-                expected = expected[orf_mappability]
+                if footprint_length_i == 0 and observed_frame_i not in printed_frame:
+                    printed_frame.add(observed_frame_i)
+                    print('transcript: {}, frame: {}, footprint: {}'.format(transcript_obj.id, observed_frame_i, footprint_length_i))
+                    print('pileups: {}'.format(pileups2.shape[0]))
+                    print('expected: {}'.format(expected.shape))
+                    print('fully  : {}'.format(fully_mappable_triplets.shape[1]))
+                    print('raw pileup length: {}'.format(raw_pileup_length))
+                    print('raw pileup length / 3: {}'.format(raw_pileup_length / 3))
+                    print('raw pileup length % 3: {}'.format(raw_pileup_length % 3))
+                try:
+                    pileups = pileups[orf_mappability]
+                except:
+                    print('^^^^^^^^^^^^^^^^^^^^^')
+                    print('pileups shape: {}'.format(pileups.shape))
+                    print('orf_mappability shape: {}'.format(orf_mappability.shape))
+                    # print('start: {}'.format(observed_start))
+                    # print('stop +1: {}'.format(observed_stop + 1))
+                    # print('pileups original: {}'.format(pileups2.shape))
+                    # print('fully mappable: {}'.format(fully_mappable_triplets.shape))
+                    print('^^^^^^^^^^^^^^^^^^^^^')
+                    raise
+                try:
+                    expected = expected[orf_mappability]
+                except:
+                    print('^^^^^^^^^^^^^^^^^^^^^')
+                    print('expected shape: {}'.format(expected.shape))
+                    print('orf_mappability shape: {}'.format(orf_mappability.shape))
+                    print('^^^^^^^^^^^^^^^^^^^^^')
+                    raise
                 post_mappability_count = pileups.shape[0]
 
                 # Find pileup proportions
@@ -475,6 +515,24 @@ class Data:
                 )
 
                 # Find squared error
+                if not np.any(orf_mappability):
+                    n_blank += 1
+                    n_orfs_blank[footprint_length_i] += 1
+                    # print('%%%%%%%%%%%%%%%%%%%')
+                    # print('888transcript: {}'.format(transcript_obj.id))
+                    # print('fully mappable triplets')
+                    # print(fully_mappable_triplets)
+                    # print(fully_mappable_triplets.shape)
+                    # from collections import Counter
+                    # a = Counter(fully_mappable_triplets.sum(axis=0).tolist())
+                    # print(a)
+                    # print('is_pos_mappable')
+                    # print(self.is_pos_mappable.shape)
+                    # print(Counter(self.is_pos_mappable.astype(int).sum(axis=1).tolist()))
+                    # print(self.is_pos_mappable)
+                    # print(orf_mappability)
+                    # print(pileups_proportions)
+                    # print(expected)
                 squared_error = (pileups_proportions - expected) ** 2
 
                 # Add error sum of base pair in each triplet
@@ -491,9 +549,18 @@ class Data:
                 if normalize_tes:
                     tes_states = squared_error[2:-3]
                     tes_mean_squared_error = np.mean(tes_states, axis=0)
+                    # print('&&&&&&&&&&&&&&&&&&&&&&&&&')
+                    # print('squared error')
+                    # print(squared_error)
+                    # print('tes_mean_squared_error')
+                    # print(tes_mean_squared_error)
+                    # print('tes_states')
+                    # print(tes_states)
+                    # print('reshaped')
+                    # print(tes_mean_squared_error.reshape(1, -1))
                     squared_error = np.concatenate([
                         squared_error[:2],
-                        tes_mean_squared_error,
+                        tes_mean_squared_error.reshape(1, -1),
                         squared_error[-3:]
                     ])
 
@@ -504,12 +571,19 @@ class Data:
             # Take the mean of all RMSE over all footprints lengths
             orf_error_only_orf = np.mean(footprint_errors_only_orf)
 
+            if normalize_tes:
+                self.ssrmses[candidate_orf.frame].append(orf_error_only_orf)
+            else:
+                self.rmses[candidate_orf.frame].append(orf_error_only_orf)
+
             orfs_with_errors.append((
                 candidate_orf,
                 orf_error_only_orf,
                 by_triplet_error_only_orf,
                 triplets_dropped_for_mappability,
-                ORF_pileups
+                ORF_pileups,
+                n_blank,
+                n_total
             ))
 
 
@@ -646,6 +720,19 @@ class Data:
             #                          orf_error_only_orf, by_triplet_error_only_orf, triplets_dropped_for_mappability,
             #                          ORF_pileups))
 
+        # Print out transcript level report
+        print('===============')
+        print('Transcript id: {}'.format(transcript_obj.id))
+        print('Normalize TES: {}'.format(normalize_tes))
+        print('N ORFs: {}'.format(len(all_candidate_cds)))
+        print('n total RMSE calculations: {}'.format(n_total))
+        print('n blank: {}'.format(n_blank))
+        print('self.rmses: {}'.format(self.rmses))
+        print('self.ssrmses: {}'.format(self.ssrmses))
+        print('Original pileups')
+        print('Raw pileup length: {}'.format(raw_pileup_length))
+        print('Raw pileup length: {}'.format(raw_pileup_length))
+        print('===============\n')
 
         if not return_sorted:
             return orfs_with_errors
@@ -2496,16 +2583,16 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                 transcript_id = transcript.raw_attrs['transcript_id']
             except KeyError:
                 raise KeyError('Could not find transcript id')
-            print('Looking at transcript {}'.format(transcript_id))
+            print('!!!!! Looking at transcript {} !!!!!'.format(transcript_id))
             i += 1
             transcript.data_obj.compute_log_probability(emission)
             transcript.state_obj = state = State(transcript.data_obj.n_triplets)
             transcript.state_obj._forward_update(data=transcript.data_obj, transition=transition)
-            emission_errors = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False)
+            emission_errors = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, transcript_obj=transcript)
             import pickle
             with open('rmse.pkl', 'wb') as out:
                 pickle.dump(emission_errors, out)
-            emission_errors_normalized_tes = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, normalize_tes=True)
+            emission_errors_normalized_tes = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, normalize_tes=True, transcript_obj=transcript)
             with open('ssrmse.pkl', 'wb') as out:
                 pickle.dump(emission_errors_normalized_tes, out)
             # ORF_EMISSION_ERROR_MEAN_WITH_UTR = 1
@@ -2669,6 +2756,9 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             })
         except Exception as e:
             print('Could not process transcript {}: {}'.format(transcript_id, tb.format_exc()))
+    # print('************************')
+    # print(f'n_orfs_blank: {n_orfs_blank}')
+    # print(f'n_orfs_total: {n_orfs_total}')
     return orf_posteriors, candidate_cds_matrices, discovery_mode_results
 
 
