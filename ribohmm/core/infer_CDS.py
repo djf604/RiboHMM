@@ -315,6 +315,7 @@ def infer_on_transcripts(transcripts: List[Transcript], ribo_track, genome_track
                             records_to_write.append(record)
                         except:
                             print('Could not write record for {} ORF {}'.format(transcript.id, orf_i))
+                            raise
     return records_to_write, discovery_mode_debug_metadata
 
 
