@@ -25,6 +25,16 @@ CandidateCDS = namedtuple('CandidateCDS', 'frame start stop')
 # Remove this once we're done with debugging RMSE
 n_orfs_blank, n_orfs_total = [0, 0, 0, 0], [0, 0, 0, 0]
 
+from datetime import datetime
+RMSE_ID = datetime.now().strftime('%Y%m%d%H%M%S')
+
+class RMSEStats:
+    total_orfs = 0
+    n_orfs_ltfm = 0
+    n_orfs_ltfm_within_transcript = list()
+    orf_sizes = list()
+    longest_LTFMs_transcripts = list()
+
 def logistic(x):
     return 1 / (1 + np.exp(x))
 
@@ -423,6 +433,7 @@ class Data:
         """
         # Identify only triplets which are fully mappable to calculate RMSE
         # fully_mappable_triplets [each frame, each footprint length, each triplet]
+        csv_rows = list()
         N_FRAMES = 3
         fully_mappable_triplets = np.zeros((N_FRAMES, self.n_footprint_lengths, self.n_triplets))
         for frame_i in range(N_FRAMES):
@@ -432,6 +443,76 @@ class Data:
                         self.is_pos_mappable[(i * 3) + frame_i: (i * 3) + 3 + frame_i, footprint_length_i]
                     )
 
+        # Use the missingness type
+        import pickle
+        import os
+        # print('$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$')
+        # data = {
+        #     'custom_fully_mappable_triplets': fully_mappable_triplets,
+        #     'original_missingness_type': self.missingness_type,
+        #     'exonic_positions': transcript_obj.transcribed_seq_positions,
+        #     'exons': transcript_obj.exons,
+        #     'transcript_obj': transcript_obj,
+        #     'is_pos_mappable': self.is_pos_mappable
+        # }
+        # with open('missingness.pkl', 'wb') as out:
+        #     pickle.dump(data, out)
+
+
+        print('$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$')
+        # if transcript_obj.strand == '-' and len(transcript_obj.exons) == 1:
+        # if len(transcript_obj.exons) == 1:
+        if False:
+            filename_out = 'missingness_all_20250508.pkl'
+        # if len(transcript_obj.exons) == 1:
+            print('^^^^^^^^^^^^^^^^^^^^^6')
+            if os.path.isfile(filename_out):
+                with open(filename_out, 'rb') as in_:
+                    data = pickle.load(in_)
+                    if not isinstance(data, list):
+                        data = list()
+            else:
+                data = list()
+            data.append({
+                'custom_fully_mappable_triplets': fully_mappable_triplets,
+                'original_missingness_type': self.missingness_type,
+                'exonic_positions': transcript_obj.transcribed_seq_positions,
+                'exons': transcript_obj.exons,
+                'transcript_obj': transcript_obj,
+                'is_pos_mappable': self.is_pos_mappable
+            })
+            with open(filename_out, 'wb') as out:
+                pickle.dump(data, out)
+
+        # # Add raw pos mappable
+        # import pickle
+        # with open('rmse.pkl', 'wb') as out_pkl:
+        #     pickle.dump({
+        #         'is_pos_mappable': self.is_pos_mappable,
+        #         'fully_mappable': fully_mappable_triplets,
+        #         'n_triplets': self.n_triplets
+        #     }, out_pkl)
+        # transcript_csv = [[transcript_obj.id]]
+        # is_pos_mappable_csv = [
+        #     [''.join(self.is_pos_mappable[x:x+3, 0].astype(int).astype(str)) for x in range(0, self.n_triplets, 3)],
+        #     [''.join(self.is_pos_mappable[x:x+3, 0].astype(int).astype(str)) for x in range(1, self.n_triplets, 3)],
+        #     [''.join(self.is_pos_mappable[x:x+3, 0].astype(int).astype(str)) for x in range(2, self.n_triplets, 3)]
+        # ]
+        # fully_mappable_triplets_csv = [
+        #     fully_mappable_triplets[0, 0].astype(int).astype(str),
+        #     fully_mappable_triplets[1, 0].astype(int).astype(str),
+        #     fully_mappable_triplets[2, 0].astype(int).astype(str),
+        # ]
+        # import pandas as pd
+        # pd.DataFrame(data=(
+        #     transcript_csv
+        #     + is_pos_mappable_csv
+        #     + fully_mappable_triplets_csv
+        # )).to_csv('rmse_ltfm.csv', index=False, header=False)
+
+        rmse_bed_output = dict()
+
+
         # Get all the ORFs for this transcript
         orfs_with_errors = list()
         # for candidate_orf in self.get_candidate_cds_simple():
@@ -439,7 +520,7 @@ class Data:
         all_candidate_cds = all_candidate_cds[0] + all_candidate_cds[1] + all_candidate_cds[2]
         # Iterate through all ORFs
         n_blank, n_total = 0, 0
-        ltfm, not_ltfm = list(), list()
+        ltfm, ltfm_coords, not_ltfm = list(), list(), list()
         for candidate_orf in all_candidate_cds:
             # footprint_errors_with_utr = list()  # Including all the UTR
             footprint_errors_only_orf = list()  # Only from start to stop, inclusive
@@ -492,8 +573,70 @@ class Data:
                 orf_mappability = fully_mappable_triplets[observed_frame_i, footprint_length_i,
                                                           observed_start:observed_stop + 1].astype(bool)
                 if footprint_length_i == 0:
+                    orf_exons = list()
+                    orf_start_pos = candidate_orf.start * 3 + candidate_orf.frame
+                    orf_stop_pos = candidate_orf.stop * 3 + candidate_orf.frame
+                    for exon_start, exon_stop in transcript_obj.exons:
+                        if exon_start < orf_start_pos:
+                            if exon_stop <= orf_start_pos:
+                                pass
+                            elif exon_stop <= orf_stop_pos:
+                                orf_exons.append((orf_start_pos, exon_stop))
+                            elif exon_stop > orf_stop_pos:
+                                orf_exons.append((orf_start_pos, orf_stop_pos))
+                        elif exon_start == orf_start_pos:
+                            if exon_stop <= orf_stop_pos:
+                                orf_exons.append((exon_start, exon_stop))
+                            elif exon_stop > orf_stop_pos:
+                                orf_exons.append((exon_start, orf_stop_pos))
+                        elif orf_start_pos < exon_start < orf_stop_pos:
+                            if exon_stop <= orf_stop_pos:
+                                orf_exons.append((exon_start, exon_stop))
+                            elif exon_stop > orf_stop_pos:
+                                orf_exons.append((exon_start, orf_stop_pos))
+                        elif exon_start >= orf_stop_pos:
+                            pass
+
+                        # Exon is fully inside the ORF
+                        # if exon_start >= orf_start_pos and exon_stop <= orf_stop_pos:
+                        #     orf_exons.append((exon_start, exon_stop))
+                        # elif exon_start < orf_start_pos and exon_stop > orf_start_pos and exon_stop <= orf_stop_pos:
+                        #     orf_exons.append((orf_start_pos, exon_stop))
+                        # elif exon_start > orf_start_pos and exon_start < orf_stop_pos and exon_stop >= orf_start_pos:
+                        #     orf_exons.append((exon_start, orf_stop_pos))
+                        # elif exon_start < orf_start_pos and exon_stop > orf_stop_pos:
+                        #     orf_exons.append((orf_start_pos, orf_stop_pos))
+                    from datetime import datetime
+                    """
+                    - Check on if duplicates are happening
+                    - [X] For exon id, also show total number of exons, so {exon_i}/{exon_total)
+                    - [X] Make LTFM indicator in Score column, 0 for good and 1 for LTFM
+                    - [X] Move gene ID into full ID
+                    """
+                    with open('rmse_exon_output_{}.bed'.format(RMSE_ID), 'a') as out:
+                        orf_exons = [(e[0] + transcript_obj.start, e[1] + transcript_obj.start) for e in orf_exons]
+                        for exon_i, (exon_start, exon_stop) in enumerate(orf_exons):
+                            key = '{}-{}-{}-{}'.format(transcript_obj.ref_gene_id, transcript_obj.id,
+                                                 '{}/{}/{}'.format(candidate_orf.frame, candidate_orf.start,
+                                                                   candidate_orf.stop), '{}/{}'.format(exon_i + 1, len(orf_exons)))
+                            out.write('\t'.join([
+                                str(transcript_obj.chromosome),
+                                str(exon_start),
+                                str(exon_stop),
+                                key,
+                                str(1 if not np.any(orf_mappability) else 0),
+                                transcript_obj.strand
+                            ]) + '\n')
+
                     if not np.any(orf_mappability):
                         ltfm.append(orf_size)
+                        ltfm_coords.append(candidate_orf)
+
+                        # Add to CSV
+                        # ORF state, only start to stop
+                        # less than fully mappable for each triplet
+                        # The raw is position mappable
+                        # Sequence?
                     else:
                         not_ltfm.append(orf_size)
                 n_orfs_total[footprint_length_i] += 1
@@ -557,7 +700,7 @@ class Data:
             ))
 
         # Print out transcript level report
-        from collections import Counter
+        from collections import Counter, defaultdict
         print('===============')
         print('Transcript id: {}'.format(transcript_obj.id))
         print('Normalize TES: {}'.format(normalize_tes))
@@ -570,8 +713,26 @@ class Data:
         print('median ORF size for NOT LTFM: {}'.format(np.median(not_ltfm)))
         print('distribution for LTFM: {}'.format(Counter(ltfm).most_common()))
         print('\tORF Size: N Occurrences')
+        if normalize_tes:
+            RMSEStats.total_orfs += len(all_candidate_cds)
+            RMSEStats.n_orfs_ltfm += len(ltfm)
+            RMSEStats.n_orfs_ltfm_within_transcript.append(len(ltfm))
+            RMSEStats.orf_sizes.extend(ltfm)
+            # if any([o > 20 for o in ltfm]):
+            #     RMSEStats.longest_LTFMs_transcripts.append(transcript_obj)
+        orf_coords_by_size = defaultdict(list)
+        for size, coords in zip(ltfm, ltfm_coords):
+            orf_coords_by_size[size].append(coords)
+            if size > 20:
+                transcript_obj.compute_all_ORFs()
+                transcript_obj.compute_start_stop_pos()
+                RMSEStats.longest_LTFMs_transcripts.append((coords, transcript_obj))
+                with open('longest_LTFMs_transcripts.pkl', 'wb') as out:
+                    pickle.dump(RMSEStats.longest_LTFMs_transcripts, out)
         for val, count in Counter(ltfm).most_common():
             print('\t{}: {}'.format(val, count))
+            for coords in orf_coords_by_size[val]:
+                print('\t  {}'.format(coords))
         print('===============\n')
 
         if not return_sorted:
@@ -2435,6 +2596,20 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             emission_errors_normalized_tes = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, normalize_tes=True, transcript_obj=transcript)
             with open('ssrmse.pkl', 'wb') as out:
                 pickle.dump(emission_errors_normalized_tes, out)
+            from collections import Counter
+            print('******************************')
+            print('Total ORFs: {}'.format(RMSEStats.total_orfs))
+            print('Total LTFM ORFs: {} ({}%)'.format(RMSEStats.n_orfs_ltfm, round((RMSEStats.n_orfs_ltfm / RMSEStats.total_orfs) * 100, 2)))
+            print('Mean number of LTFM in a transcript: {}'.format(np.mean(RMSEStats.n_orfs_ltfm_within_transcript)))
+            print('Median number of LTFM in a transcript: {}'.format(np.median(RMSEStats.n_orfs_ltfm_within_transcript)))
+            print('Full set LTFM mean ORF size: {}'.format(np.mean(RMSEStats.orf_sizes)))
+            print('Full set LTFM median ORF size: {}'.format(np.median(RMSEStats.orf_sizes)))
+            print('Full set LTFM distribution:\n')
+            for val, count in Counter(RMSEStats.orf_sizes).most_common():
+                print('\t{}: {}'.format(val, count))
+            with open('longest_LTFMs_transcripts.pkl', 'wb') as out:
+                pickle.dump(RMSEStats.longest_LTFMs_transcripts, out)
+            print('******************************')
             # ORF_EMISSION_ERROR_MEAN_WITH_UTR = 1
             # ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR = 2
             ORF_EMISSION_ERROR_MEAN_ONLY_ORF = 1

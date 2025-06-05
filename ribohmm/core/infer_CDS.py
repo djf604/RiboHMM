@@ -350,7 +350,19 @@ def infer_CDS(
     model_params = json.load(open(model_file))
 
     # load transcripts
+    # transcript_models = {k: v for k, v in transcript_models.items() if len(v.exons) == 1 and v.strand == '-'}
+    # transcript_models = {k: v for k, v in transcript_models.items() if len(v.exons) == 1}
     transcript_names: List[str] = list(transcript_models.keys())[:N_TRANSCRIPTS]
+    # transcript_names: List[str] = ['STRG.6188.2', 'STRG.6275.2', 'STRG.6452.15']
+
+    # for t in transcript_models.values():
+    #     if len(t.exons) == 1 and t.strand == '-':
+    #         print(t.id)
+    #         print(t.raw_attrs)
+    # logger.info(transcript_models[transcript_names[0]].exons)
+    # logger.info(transcript_models[transcript_names[1]].exons)
+    # logger.info(transcript_models[transcript_names[2]].exons)
+    # logger.info(len(transcript_models[transcript_names[2]].exons))
     # print(f'!!!!! Size of transcripts: {len(transcript_names)}')
     logger.info('Number of transcripts: {}'.format(len(transcript_names)))
 
