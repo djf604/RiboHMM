@@ -87,8 +87,14 @@ class Genome():
             # get mappable positions
             mappables = [np.zeros(transcript.mask.shape, dtype='bool')
                          for r in self._read_lengths]
-            tbx_iters = [handle.fetch(transcript.chromosome, transcript.start, transcript.stop)
-                         for handle in self._map_handles]
+            tbx_iters = [
+                handle.fetch(
+                    transcript.chromosome,
+                    transcript.start - (0 if transcript.strand == '+' else (self._read_lengths[handle_i] - 2)),
+                    transcript.stop
+                )
+                for handle_i, handle in enumerate(self._map_handles)
+            ]
             if transcript.strand=='+':
                 offsets = [1,1,1,1]
             else:
@@ -101,7 +107,8 @@ class Genome():
                     row = tbx.split('\t')
                     start = int(row[1]) - transcript.start + offset - 1
                     end = int(row[2]) - transcript.start + offset - 1
-                    mappable[start:end] = True
+                    # Because start can be negative, set it to 0 in that case
+                    mappable[max(0, start):end] = True
 
             if transcript.strand=='+':
                 mappables = np.array(mappables).T.astype('bool')
@@ -338,6 +345,8 @@ class ORF:
         self.stop_pos = stop_pos
         self.start_seq = start_seq
         self.stop_seq = stop_seq
+        self.exonic_positions = None
+        self.exonic_intervals = None
 
         # Legacy values to match the namedtuple CandidateCDS
         self.start = self.start_triplet
@@ -495,18 +504,37 @@ class Transcript():
             # Remove initial bases to set the frame
             for _ in range(orf.frame):
                 exonic_positions = np.delete(exonic_positions, 0)
+
             # If needed, add placeholder values to make sequence divisible by 3
             if len(exonic_positions) % 3 in {1, 2}:
-                exonic_positions = np.append(exonic_positions, [-2] * (3 - (len(exonic_positions) % 3)))
+                reshaped_exonic_positions = np.append(exonic_positions, [-2] * (3 - (len(exonic_positions) % 3)))
 
             # Chunk exonic positions into triplets
             # triplet_genomic_positions = np.array(np.split(exonic_positions, 3))
-            triplet_genomic_positions = exonic_positions.reshape(-1, 3)
+            triplet_genomic_positions = reshaped_exonic_positions.reshape(-1, 3)
             # TODO This is splitting into 3 sets of even size, I want however many chunks all of size 3
 
             # Get genomic position of start and stop codons
             orf.start_pos = list(triplet_genomic_positions[orf.start_triplet])
             orf.stop_pos = list(triplet_genomic_positions[orf.stop_triplet])
+
+            # Record exonic positions for this ORF
+            orf.exonic_positions = exonic_positions[
+                (exonic_positions >= min(orf.start_pos + orf.stop_pos))
+                & (exonic_positions <= max(orf.start_pos + orf.stop_pos))
+            ]
+
+            # Get the exonic intervals
+            orf.exonic_intervals = list()
+            exonic_pos = orf.exonic_positions[::-1 if self.strand == '-' else 1]
+            interval = [exonic_pos[0]]
+            for pos in exonic_pos[1:]:
+                if pos == interval[-1] + 1:
+                    interval.append(pos)
+                else:
+                    orf.exonic_intervals.append(interval)
+                    interval = [pos]
+            orf.exonic_intervals.append(interval)
 
     def compute_all_ORFs(self):
         """

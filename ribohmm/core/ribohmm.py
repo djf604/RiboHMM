@@ -439,6 +439,7 @@ class Data:
         all_candidate_cds = all_candidate_cds[0] + all_candidate_cds[1] + all_candidate_cds[2]
         # Iterate through all ORFs
         n_blank, n_total = 0, 0
+        ltfm, not_ltfm = list(), list()
         for candidate_orf in all_candidate_cds:
             # footprint_errors_with_utr = list()  # Including all the UTR
             footprint_errors_only_orf = list()  # Only from start to stop, inclusive
@@ -490,6 +491,11 @@ class Data:
                                                           observed_start:min(observed_stop + 1, pileups.shape[0] - 1)].astype(bool)
                 orf_mappability = fully_mappable_triplets[observed_frame_i, footprint_length_i,
                                                           observed_start:observed_stop + 1].astype(bool)
+                if footprint_length_i == 0:
+                    if not np.any(orf_mappability):
+                        ltfm.append(orf_size)
+                    else:
+                        not_ltfm.append(orf_size)
                 n_orfs_total[footprint_length_i] += 1
                 pre_mappability_count = pileups.shape[0]
                 pileups = pileups[orf_mappability]
@@ -549,6 +555,24 @@ class Data:
                 # n_blank,
                 # n_total
             ))
+
+        # Print out transcript level report
+        from collections import Counter
+        print('===============')
+        print('Transcript id: {}'.format(transcript_obj.id))
+        print('Normalize TES: {}'.format(normalize_tes))
+        print('n total RMSE calculations: {}'.format(n_total))
+        print('N ORFs: {}'.format(len(all_candidate_cds)))
+        print('n ORFs that were all less than fully mappable (LTFM): {}'.format(len(ltfm)))
+        print('mean ORF size for LTFM: {}'.format(np.mean(ltfm)))
+        print('median ORF size for LTFM: {}'.format(np.median(ltfm)))
+        print('mean ORF size for NOT LTFM: {}'.format(np.mean(not_ltfm)))
+        print('median ORF size for NOT LTFM: {}'.format(np.median(not_ltfm)))
+        print('distribution for LTFM: {}'.format(Counter(ltfm).most_common()))
+        print('\tORF Size: N Occurrences')
+        for val, count in Counter(ltfm).most_common():
+            print('\t{}: {}'.format(val, count))
+        print('===============\n')
 
         if not return_sorted:
             return orfs_with_errors
