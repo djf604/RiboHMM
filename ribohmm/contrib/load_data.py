@@ -76,7 +76,7 @@ class Genome():
             
         return sequences
 
-    def get_mappability(self, transcripts):
+    def get_mappability(self, transcripts, use_old_mappability_method=False):
         if self._map_handles is None:
             self._map_handles = [pysam.TabixFile(self.map_filename+'_%d.bed.gz'%r)
                                  for r in self._read_lengths]
@@ -108,7 +108,12 @@ class Genome():
                     start = int(row[1]) - transcript.start + offset - 1
                     end = int(row[2]) - transcript.start + offset - 1
                     # Because start can be negative, set it to 0 in that case
-                    mappable[max(0, start):end] = True
+                    if use_old_mappability_method:
+                        mappable[start:end] = True
+                        print('Using old method!!!!')
+                    else:
+                        mappable[max(0, start):end] = True
+                        print('Using the correct method!!!!')
 
             if transcript.strand=='+':
                 mappables = np.array(mappables).T.astype('bool')
