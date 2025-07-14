@@ -88,6 +88,7 @@ def populate_parser(parser: argparse.ArgumentParser):
     common_group.add_argument('--disable-cache', action='store_true',
                               help='If supplied, will disable use of the transcript cache')
     common_group.add_argument('--cache-dir', help='Directory in which to store the cache, defaults to ~/.ribohmm')
+    common_group.add_argument('--use-old-mappability-method', action='store_true', help='Uses the incorrect method to determine mappability; Do not select this')
 
     # External software paths
     common_group.add_argument('--bgzip-path', help='Path to bgzip executable, if not in $PATH')
@@ -224,7 +225,8 @@ def execute_ribohmm(args, learn=True, infer=True):
             scale_beta=args['scale_beta'],
             restarts=args['restarts'],
             mintol=args['min_tolerence'],
-            read_lengths=args['read_lengths']
+            read_lengths=args['read_lengths'],
+            use_old_mappability_method=args['use_old_mappability_method']
         )
 
         print('\n######\nWriting out learned model parameters\n######')
@@ -248,7 +250,8 @@ def execute_ribohmm(args, learn=True, infer=True):
             dev_output_debug_data=args['dev_output_debug_data'],
             n_procs=args['n_procs'],
             n_transcripts_per_proc=args['n_transcripts_per_proc'],
-            ignore_strand_info=args['ignore_strand_information']
+            ignore_strand_info=args['ignore_strand_information'],
+            use_old_mappability_method=args['use_old_mappability_method']
         )
 
     # Print out total runtime

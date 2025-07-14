@@ -1,18 +1,16 @@
 import os
-import argparse
 import warnings
 import json
-import datetime
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, wait, ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, wait
 from typing import Dict, List
 
 import numpy as np
 
-from ribohmm import core, utils
+from ribohmm import utils
 from ribohmm.core.seq import RnaSequence
 from ribohmm.contrib.load_data import Transcript
-from ribohmm.core.ribohmm import infer_coding_sequence, discovery_mode_data_logprob, state_matrix_qa, compare_raw_seq_to_codon_map
+from ribohmm.core.ribohmm import infer_coding_sequence, discovery_mode_data_logprob
 
 import logging
 logging.basicConfig(
@@ -30,15 +28,10 @@ warnings.filterwarnings('ignore', '.*invalid value.*',)
 N_FRAMES = 3
 
 
-
-
 def write_inferred_cds_discovery_mode(transcript, orf_i, candidate_cds, orf_posterior,
                                       orf_start, orf_stop, rmse, ssrmse):
     try:
-        # print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
-        #       f' Posteriors: {list(frame.posterior)} | {orf_posterior} * {frame.posterior[candidate_cds.frame]}')
         posterior = int(orf_posterior * transcript.frame_obj.posterior[candidate_cds.frame] * 10_000)
-        # print(f'###### {posterior}')
     except:
         posterior = 'NaN'
     tis = orf_start  # This is base position, not a state position
@@ -111,12 +104,8 @@ def write_inferred_cds_discovery_mode(transcript, orf_i, candidate_cds, orf_post
 def write_inferred_cds(transcript, state, frame, rna_sequence):
     posteriors = state.max_posterior*frame.posterior
     index = np.argmax(posteriors)
-    # print(f'Transcript: {transcript.chromosome}:{transcript.start}:{transcript.stop}:{transcript.strand}:{transcript.id}'
-    #       f' Posteriors: {list(frame.posterior)} | {frame.posterior[index]}')
     tis = state.best_start[index]
     tts = state.best_stop[index]
-    # print(f'Stop codon: {rna_sequence[tts-3:tts]}')
-    # print(f'TTS (stop codon): {rna_sequence[tts:tts+3]}')
 
     # output is not a valid CDS
     if tis is None or tts is None:
@@ -153,7 +142,8 @@ def write_inferred_cds(transcript, state, frame, rna_sequence):
 
 
 def infer_on_transcripts(transcripts: List[Transcript], ribo_track, genome_track, rnaseq_track,
-                         mappability_tabix_prefix, infer_algorithm, model_params, primary_strand=None):
+                         mappability_tabix_prefix, infer_algorithm, model_params, primary_strand=None,
+                         use_old_mappability_method=False):
     """
     Args:
         transcripts:
@@ -214,14 +204,11 @@ def infer_on_transcripts(transcripts: List[Transcript], ribo_track, genome_track
             rna_counts = np.ones((len(transcripts),), dtype='float')
         else:
             rna_counts = rnaseq_track.get_total_counts(transcripts)
-        # import pickle
-        # with open('rnaseq_lengths.pkl', 'wb') as out:
-        #     pickle.dump(rna_counts, out)
 
         # load mappability of transcripts; transform mappability to missingness
         logger.info('Loading mappability')
         if mappability_tabix_prefix is not None:
-            rna_mappability = genome_track.get_mappability(transcripts)
+            rna_mappability = genome_track.get_mappability(transcripts, use_old_mappability_method=use_old_mappability_method)
         else:
             rna_mappability = [np.ones(c.shape, dtype='bool') for c in footprint_counts]
 
@@ -268,10 +255,6 @@ def infer_on_transcripts(transcripts: List[Transcript], ribo_track, genome_track
                         'relative': t.exons,
                         'mask': list([int(m) for m in t.mask])
                     },
-                    # 'riboseq_pileup_counts': {
-                    #     read_length: list(f[:, read_length_i])
-                    #     for read_length_i, read_length in enumerate(ribo_track.get_read_lengths())
-                    # },
                     'results': candidate_cds_likelihoods
                 }
                 for t, candidate_cds_likelihoods, f, seq in zip(transcripts, pos_data_log_probs, footprint_counts, rna_sequences)
@@ -319,10 +302,6 @@ def infer_on_transcripts(transcripts: List[Transcript], ribo_track, genome_track
     return records_to_write, discovery_mode_debug_metadata
 
 
-
-
-
-
 def infer_CDS(
     model_file,
     transcript_models: Dict[str, Transcript],
@@ -336,13 +315,11 @@ def infer_CDS(
     dev_output_debug_data=None,
     n_procs=1,
     n_transcripts_per_proc=10,
-    ignore_strand_info=False
+    ignore_strand_info=False,
+    use_old_mappability_method=False
 ):
     logger.info('Starting infer_CDS()')
     N_TRANSCRIPTS = dev_restrict_transcripts_to  # Set to None to allow all transcripts
-    # print(f'Processing N Transcripts: {N_TRANSCRIPTS}')
-    N_FRAMES = 3
-    DEBUG_OUTPUT_FILENAME = 'feb07.json'
 
     """
     Load the model from JSON
@@ -351,35 +328,26 @@ def infer_CDS(
 
     # load transcripts
     transcript_names: List[str] = list(transcript_models.keys())[:N_TRANSCRIPTS]
-    # print(f'!!!!! Size of transcripts: {len(transcript_names)}')
     logger.info('Number of transcripts: {}'.format(len(transcript_names)))
 
     # open output file handle
     # file in bed12 format
     logger.info('Writing output headers')
     handle = open(os.path.join(output_directory, 'inferred_CDS.bed'), 'w')
-    towrite = ["chromosome", "start", "stop", "transcript_id", 
-               "posterior", "strand", "cdstart", "cdstop", 
-               "protein_seq", "num_exons", "exon_sizes", "exon_starts", "frame",
-               'riboseq_count_28', 'riboseq_count_29', 'riboseq_count_30', 'riboseq_count_31',
-               'rnaseq_count', 'rmse', 'ssrmse',
-               'occupancy_model', 'periodicity_model'
-               ]
+    if infer_algorithm == 'discovery':
+        towrite = ["chromosome", "start", "stop", "transcript_id", 
+            "posterior", "strand", "cdstart", "cdstop", 
+            "protein_seq", "num_exons", "exon_sizes", "exon_starts", "frame",
+            'riboseq_count_28', 'riboseq_count_29', 'riboseq_count_30', 'riboseq_count_31',
+            'rnaseq_count', 'rmse', 'ssrmse',
+            'occupancy_model', 'periodicity_model'
+        ]
+    else:
+        towrite = ["chromosome", "start", "stop", "transcript_id", 
+            "posterior", "strand", "cdstart", "cdstop", 
+            "protein_seq", "num_exons", "exon_sizes", "exon_starts", "frame"
+        ]
     handle.write(" ".join(map(str, towrite))+'\n')
-
-    from ribohmm.contrib.load_data import read_annotations, Transcript
-    # genome_track.get_sequence(list(transcript_models.values()), add_seq_to_transcript=True)
-    # start_codon_annotations, stop_codon_annotations = read_annotations()
-    # print('********** We are computing all ***********')
-    # Transcript.compute_all(
-    #     [t for t in transcript_models.values()],
-    #     start_annotations=start_codon_annotations,
-    #     stop_annotations=stop_codon_annotations
-    # )
-    # n_not_found = sum([1 - int(t.annotated_ORF_found) for t in transcript_models.values()])
-    # total_transcripts = len(transcript_models.values())
-    # print('{}/{} not found'.format(n_not_found, total_transcripts))
-
 
     # Process 1000 transcripts at a time
     debug_metadata = defaultdict(list)
@@ -402,19 +370,16 @@ def infer_CDS(
                     rnaseq_track=rnaseq_track,
                     mappability_tabix_prefix=mappability_tabix_prefix,
                     infer_algorithm=infer_algorithm,
-                    model_params=model_params
+                    model_params=model_params,
+                    use_old_mappability_method=use_old_mappability_method
                 ))
 
     wait(futs)
     for fut in futs:
         records_to_write_, debug_metadata_ = fut.result()
-        # print(f'Got {len(records_to_write_)} records to write')
         records_to_write.extend(records_to_write_)
         for d in debug_metadata_:
             debug_metadata[d['transcript_info']['strand']].append(d)
-        # if debug_metadata_:
-        #     pos_debug_metadata = [d for d in debug_metadata_ if d['transcript_info']]
-        #     debug_metadata[infer_strand].extend(debug_metadata_)
 
     # Output records
     for record in records_to_write:
@@ -499,11 +464,6 @@ def serialize_output(results):
     if isinstance(results, np.ndarray):
         return list(results)
     return results
-# if __name__=="__main__":
-#
-#     options = parse_args()
-#
-#     infer(options)
 
 
 def find_start_codon(data, only_show_missing=True):
@@ -513,7 +473,6 @@ def find_start_codon(data, only_show_missing=True):
         for trns_i, trns in enumerate(data[strand]):
             has_start_codon = list()
             within_five = list()
-            #start_codon_index = 0 if orf['strand'] == '+' else 2
             closest_start = (9e10, None)
             if len(trns['results']['candidate_orf']) == 0:
                 print('{} transcript {}/None has no ORFS'.format(strand, trns['transcript_info'].get('id')))
@@ -522,9 +481,6 @@ def find_start_codon(data, only_show_missing=True):
                 start_codon_index = 0 if orf['strand'] == '+' else 2
                 transcript_id = orf['transcript_id']
                 annotated_start = orf['annotated_start']
-                # print('one')
-                # print(orf['annotated_start'])
-                # print(transcript_id)
                 try:
                     distance_to_start = abs(orf['start_codon_genomic_position'][start_codon_index] - orf['annotated_start'])
                 except:
@@ -606,36 +562,3 @@ def write_seq(seq, numbers=False):
   else:
     offset = 0
   return ' '.join([seq[s:s+3] for s in range(int(len(seq) / 3) + offset)])
-
-
-"""
-[
-  ...
-  [0 0 0],
-  [0 0 0],
-  
-  [3 0 0],
-  [0 0 0]
-]
-
-
-[
-  [0 0 0]
-  [0 1 0],
-  [0 0 0],
-  [0 0 0],
-  [0 0 0]
-]
-
-
-ACGTC
-GTC AAT CCT CT    CT =/= AUG
-CGT C
-
-"""
-
-
-
-
-
-

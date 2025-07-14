@@ -138,5 +138,9 @@ second row the proportion of the U base, the third row the G base, and the fourt
 
 The `freq` array is the observed frequencies of the Kozak model, and `altfreq` is the background frequencies.
 
+## virtualenv with uv
+To create a virtualenv with all required dependencies, execute `uv sync`. A `.venv` folder will be created. To install 
+`uv`, refer to the documentation [here](https://docs.astral.sh/uv/getting-started/installation/).
+
 ## Support
 If errors are encountered, please open an issue on this repository with a detailed bug report.

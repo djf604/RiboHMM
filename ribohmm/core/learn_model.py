@@ -20,15 +20,12 @@ def select_transcripts(transcript_models_dict, ribo_track, batch_size):
     start_ = time.time()
     
     # load all transcripts
-    # print('Loading GTF')
-    # transcript_models_dict = load_data.load_gtf(transcriptome_gtf)
     """This is a list of load_data.Transcript objects"""
     print('Getting Transcript objects')
     transcript_models = list(transcript_models_dict.values())
 
     # get translation level in all transcripts
     print('Loading riboseq file')
-    # ribo_track = load_data.RiboSeq(riboseq_tabix_prefix, read_lengths)
     """
     For each transcript, divide the total number of counts in the exons by the length of all exons
     """
@@ -37,10 +34,8 @@ def select_transcripts(transcript_models_dict, ribo_track, batch_size):
     transcript_translation_rate = [
         c / float(t.mask.sum())
         for c, t in zip(ribo_track.get_total_counts(transcript_models), transcript_models)
-        # for c, t in zip(ribo_track.get_total_counts(transcript_models[:10000]), transcript_models[:10000])
     ]
     logger.debug('calculate_transcript_translation_rate:{}'.format(time.time() - start))
-    # print('{}'.format(time.time() - start))
 
     # select top transcripts
     transcripts, transcript_bounds = list(), defaultdict(list)
@@ -82,7 +77,7 @@ def select_transcripts(transcript_models_dict, ribo_track, batch_size):
 
 
 def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, ribo_track,
-                           rnaseq_track, scale_beta, restarts, mintol, read_lengths):
+                           rnaseq_track, scale_beta, restarts, mintol, read_lengths, use_old_mappability_method=False):
 
     # select transcripts for learning parameters
     # transcripts = select_transcripts(options)
@@ -107,7 +102,6 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
 
     # load footprint count data in transcripts
     footprint_counts = ribo_track.get_counts(transcripts)
-    # ribo_track.close()
     for i, read_len in enumerate(read_lengths):
         print('{} ribosome footprints of length {}bp'.format(
             np.sum([c[:, i].sum() for c in footprint_counts]),
@@ -121,17 +115,14 @@ def learn_model_parameters(genome_track, transcripts, mappability_tabix_prefix, 
     if rnaseq_track is None:
         rna_counts = np.ones((len(transcripts),), dtype='float')
     else:
-        # rnaseq_track = load_data.RnaSeq(rnaseq_tabix)
         rna_counts = rnaseq_track.get_total_counts(transcripts)
-        # rnaseq_track.close()
     print('Median RNA-seq RPKM in data is {:.2f}'.format(np.sum(rna_counts)))
 
     # load mappability of transcripts; transform mappability to missingness
     if mappability_tabix_prefix is not None:
-        rna_mappability = genome_track.get_mappability(transcripts)
+        rna_mappability = genome_track.get_mappability(transcripts, use_old_mappability_method=use_old_mappability_method)
     else:
         rna_mappability = [np.ones(c.shape, dtype='bool') for c in footprint_counts]
-    # genome_track.close()
     for i, read_len in enumerate(read_lengths):
         print('{} bases have missing counts for {} bp footprints'.format(
             np.sum([
