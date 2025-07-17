@@ -1,7 +1,19 @@
 [project]
-name = "ribohmm"
-version = "0.1.0"
+name = "RiboHMM"
+version = "2.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "cvxopt>=1.3.2",
+    "dill>=0.4.0",
+    "numpy>=2.2.6",
+    "pandas>=2.3.1",
+    "pysam>=0.23.3",
+    "scipy>=1.15.3",
+    "setuptools>=80.9.0",
+]
+
+[project.scripts]
+ribohmm = "ribohmm:execute_from_command_line"
+ribohmm-utils = "ribohmm:execute_utils_from_command_line"
