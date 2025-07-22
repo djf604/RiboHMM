@@ -23,4 +23,4 @@ ribohmm = "ribohmm:execute_from_command_line"
 ribohmm-utils = "ribohmm:execute_utils_from_command_line"
 
 [tool.setuptools]
-packages = ["ribohmm", "ribohmm._cmds", "ribohmm.contrib", "ribohmm.core"]
+packages = ["ribohmm", "ribohmm._cmds", "ribohmm.contrib", "ribohmm.core", "ribohmm.include"]
