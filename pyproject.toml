@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools >= 65.5.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "RiboHMM"
 version = "2.1.0"
@@ -17,3 +21,6 @@ dependencies = [
 [project.scripts]
 ribohmm = "ribohmm:execute_from_command_line"
 ribohmm-utils = "ribohmm:execute_utils_from_command_line"
+
+[tool.setuptools]
+packages = ["ribohmm"]
