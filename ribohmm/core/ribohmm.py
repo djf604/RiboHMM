@@ -161,7 +161,7 @@ class Data:
                 # Each triplet will be represented by an integer that corresponds to a value in utils.binarize
                 # Each value ma in each iteration represents one triplet (so will be length 3)
                 self.missingness_type[footprint_length_i, frame_i, :] = np.array([
-                    utils.debinarize[triplet_mappability.tostring()]
+                    utils.debinarize[triplet_mappability.tobytes()]
                     for triplet_mappability in per_triplet_mappability
                 ]).astype(np.uint8)
 
