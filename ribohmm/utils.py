@@ -51,7 +51,7 @@ binarize = dict([
 
 
 # debinarize = dict([(val.tostring(),key) for key,val in binarize.iteritems()])
-debinarize = dict([(val.tostring(), key) for key, val in binarize.items()])
+debinarize = dict([(val.tobytes(), key) for key, val in binarize.items()])
 
 # some essential functions
 insum = lambda x,axes: np.apply_over_axes(np.sum,x,axes)
