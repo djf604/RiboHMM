@@ -407,7 +407,7 @@ class Data:
         return orf_periodicity_likelihoods, orf_occupancy_likelihoods
 
 
-    def compute_observed_pileup_deviation(self, emission, return_sorted=True, normalize_tes=False, transcript_obj=None):
+    def compute_observed_pileup_deviation(self, emission, return_sorted=True, normalize_tes=False, transcript_obj=None, verbosity=0):
         """
         For each ORF, for each read length, for the first two base positions in each triplet, computes a
         difference between observed and expected pileup
@@ -557,22 +557,23 @@ class Data:
             ))
 
         # Print out transcript level report
-        from collections import Counter
-        print('===============')
-        print('Transcript id: {}'.format(transcript_obj.id))
-        print('Normalize TES: {}'.format(normalize_tes))
-        print('n total RMSE calculations: {}'.format(n_total))
-        print('N ORFs: {}'.format(len(all_candidate_cds)))
-        print('n ORFs that were all less than fully mappable (LTFM): {}'.format(len(ltfm)))
-        print('mean ORF size for LTFM: {}'.format(np.mean(ltfm)))
-        print('median ORF size for LTFM: {}'.format(np.median(ltfm)))
-        print('mean ORF size for NOT LTFM: {}'.format(np.mean(not_ltfm)))
-        print('median ORF size for NOT LTFM: {}'.format(np.median(not_ltfm)))
-        print('distribution for LTFM: {}'.format(Counter(ltfm).most_common()))
-        print('\tORF Size: N Occurrences')
-        for val, count in Counter(ltfm).most_common():
-            print('\t{}: {}'.format(val, count))
-        print('===============\n')
+        if verbosity >= 1:
+            from collections import Counter
+            print('===============')
+            print('Transcript id: {}'.format(transcript_obj.id))
+            print('Normalize TES: {}'.format(normalize_tes))
+            print('n total RMSE calculations: {}'.format(n_total))
+            print('N ORFs: {}'.format(len(all_candidate_cds)))
+            print('n ORFs that were all less than fully mappable (LTFM): {}'.format(len(ltfm)))
+            print('mean ORF size for LTFM: {}'.format(np.mean(ltfm)))
+            print('median ORF size for LTFM: {}'.format(np.median(ltfm)))
+            print('mean ORF size for NOT LTFM: {}'.format(np.mean(not_ltfm)))
+            print('median ORF size for NOT LTFM: {}'.format(np.median(not_ltfm)))
+            print('distribution for LTFM: {}'.format(Counter(ltfm).most_common()))
+            print('\tORF Size: N Occurrences')
+            for val, count in Counter(ltfm).most_common():
+                print('\t{}: {}'.format(val, count))
+            print('===============\n')
 
         if not return_sorted:
             return orfs_with_errors
@@ -2429,12 +2430,12 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             transcript.state_obj = state = State(transcript.data_obj.n_triplets)
             transcript.state_obj._forward_update(data=transcript.data_obj, transition=transition)
             emission_errors = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, transcript_obj=transcript)
-            import pickle
-            with open('rmse.pkl', 'wb') as out:
-                pickle.dump(emission_errors, out)
+            # import pickle
+            # with open('rmse.pkl', 'wb') as out:
+            #     pickle.dump(emission_errors, out)
             emission_errors_normalized_tes = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, normalize_tes=True, transcript_obj=transcript)
-            with open('ssrmse.pkl', 'wb') as out:
-                pickle.dump(emission_errors_normalized_tes, out)
+            # with open('ssrmse.pkl', 'wb') as out:
+            #     pickle.dump(emission_errors_normalized_tes, out)
             # ORF_EMISSION_ERROR_MEAN_WITH_UTR = 1
             # ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR = 2
             ORF_EMISSION_ERROR_MEAN_ONLY_ORF = 1

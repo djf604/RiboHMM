@@ -110,10 +110,8 @@ class Genome():
                     # Because start can be negative, set it to 0 in that case
                     if use_old_mappability_method:
                         mappable[start:end] = True
-                        print('Using old method!!!!')
                     else:
                         mappable[max(0, start):end] = True
-                        print('Using the correct method!!!!')
 
             if transcript.strand=='+':
                 mappables = np.array(mappables).T.astype('bool')
