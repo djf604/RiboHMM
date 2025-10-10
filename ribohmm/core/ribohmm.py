@@ -2361,7 +2361,7 @@ def get_triplet_string(state):
 
 
 def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcript_normalization_factors, mappability,
-                                transition, emission, transcripts, sequences):
+                                transition, emission, transcripts, sequences, skip_rmse=False):
     emission = {
         'start': 'noncanonical',
         'S': emission['S'],
@@ -2429,11 +2429,6 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             transcript.data_obj.compute_log_probability(emission)
             transcript.state_obj = state = State(transcript.data_obj.n_triplets)
             transcript.state_obj._forward_update(data=transcript.data_obj, transition=transition)
-            emission_errors = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, transcript_obj=transcript)
-            # import pickle
-            # with open('rmse.pkl', 'wb') as out:
-            #     pickle.dump(emission_errors, out)
-            emission_errors_normalized_tes = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, normalize_tes=True, transcript_obj=transcript)
             # with open('ssrmse.pkl', 'wb') as out:
             #     pickle.dump(emission_errors_normalized_tes, out)
             # ORF_EMISSION_ERROR_MEAN_WITH_UTR = 1
@@ -2448,6 +2443,13 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
             candidate_cds_likelihoods = list()
             _, all_candidate_cds = transcript.data_obj.orf_state_matrix()
             all_candidate_cds = all_candidate_cds[0] + all_candidate_cds[1] + all_candidate_cds[2]
+
+            if not skip_rmse:
+                emission_errors = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, transcript_obj=transcript)
+                emission_errors_normalized_tes = transcript.data_obj.compute_observed_pileup_deviation(emission, return_sorted=False, normalize_tes=True, transcript_obj=transcript)
+            else:
+                emission_errors = [None] * len(all_candidate_cds)
+                emission_errors_normalized_tes = [None] * len(all_candidate_cds)
 
             for candidate_cds, orf_emission_error, orf_emission_error_normalized_tes in zip(all_candidate_cds, emission_errors, emission_errors_normalized_tes):
                 triplet_likelihoods = list()
@@ -2539,25 +2541,17 @@ def discovery_mode_data_logprob(riboseq_footprint_pileups, codon_maps, transcrip
                     #     'by_pos': triplet_state_likelihood_values,
                     #     'sum': np.sum(triplet_state_likelihood_values)
                     # },
+                }
 
-                    # For debug log emission_errors_normalized_tes
-                    'orf_emission_error': {
-                        # 'mean_rmse_with_UTR': orf_emission_error[ORF_EMISSION_ERROR_MEAN_WITH_UTR],
-                        # 'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR],
+                if orf_emission_error is not None and orf_emission_error_normalized_tes is not None:
+                    candidate_cds_results['orf_emission_error'] = {
                         'mean_rmse_only_ORF': orf_emission_error[ORF_EMISSION_ERROR_MEAN_ONLY_ORF],
-                        # 'by_triplet_sse_only_ORF': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_ONLY_ORF]
-                        # 'by_triplet_sse': by_triplet_sse,
                         'triplets_dropped_for_mappability': orf_emission_error[ORF_EMISSION_ERROR_TRIPLETS_DROPPED_FOR_MAPPABILITY]
-                    },
-                    'orf_emission_error_normalized_tes': {
-                        # 'mean_rmse_with_UTR': orf_emission_error_normalized_tes[ORF_EMISSION_ERROR_MEAN_WITH_UTR],
-                        # 'by_triplet_sse': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_WITH_UTR],
+                    }
+                    candidate_cds_results['orf_emission_error_normalized_tes'] = {
                         'mean_rmse_only_ORF': orf_emission_error_normalized_tes[ORF_EMISSION_ERROR_MEAN_ONLY_ORF],
-                        # 'by_triplet_sse_only_ORF': orf_emission_error[ORF_EMISSION_ERROR_BY_TRIPLET_SSE_ONLY_ORF]
-                        # 'by_triplet_sse': by_triplet_sse,
                         'triplets_dropped_for_mappability': orf_emission_error_normalized_tes[ORF_EMISSION_ERROR_TRIPLETS_DROPPED_FOR_MAPPABILITY]
                     }
-                }
                 candidate_cds_likelihoods.append(candidate_cds_results)
 
             transcript.frame_obj = frame = Frame()

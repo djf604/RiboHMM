@@ -4,6 +4,7 @@ import re
 from functools import reduce
 from collections import namedtuple
 import time
+import psutil
 
 # READ_LENGTHS = [28, 29, 30, 31]
 CandidateCDS = namedtuple('CandidateCDS', 'frame start stop')
@@ -196,3 +197,8 @@ class Timer:
 
     def elapsed(self):
         return time.time() - self._start_time
+
+def print_memory_usage():
+    process = psutil.Process()
+    gb_memory_usage = process.memory_info().rss / 1024 ** 3
+    print('Memory Usage in GB: {}'.format(round(gb_memory_usage, 3)), flush=True)
