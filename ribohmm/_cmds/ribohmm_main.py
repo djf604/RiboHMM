@@ -124,7 +124,6 @@ def populate_parser(parser: argparse.ArgumentParser):
     infer_group.add_argument('--dev-output-debug-data')
     infer_group.add_argument('--dev-skip-rmse', action='store_true')
     infer_group.add_argument('--n-procs', type=int, default=1)
-    infer_group.add_argument('--n-transcripts-per-proc', type=int, default=10)
 
 
 def main(args=None):
