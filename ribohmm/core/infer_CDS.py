@@ -4,6 +4,8 @@ import json
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, wait
 from typing import Dict, List
+from copy import deepcopy
+import traceback
 
 import numpy as np
 
@@ -143,7 +145,7 @@ def write_inferred_cds(transcript, state, frame, rna_sequence):
 
 def infer_on_transcripts(transcripts: List[Transcript], ribo_track, genome_track, rnaseq_track,
                          mappability_tabix_prefix, infer_algorithm, model_params, primary_strand=None,
-                         use_old_mappability_method=False):
+                         use_old_mappability_method=False, skip_rmse=False):
     """
     Args:
         transcripts:
@@ -236,7 +238,8 @@ def infer_on_transcripts(transcripts: List[Transcript], ribo_track, genome_track
                 transition=model_params['transition'],
                 emission=model_params['emission'],
                 transcripts=transcripts,
-                sequences=rna_sequences
+                sequences=rna_sequences,
+                skip_rmse=skip_rmse
             )
             discovery_mode_debug_metadata = [
                 {
@@ -268,19 +271,21 @@ def infer_on_transcripts(transcripts: List[Transcript], ribo_track, genome_track
                         try:
                             rmse = transcript.data_obj.rmses[frame_i][orf_i]
                         except:
-                            print('RMSE')
-                            print('transcript: {}'.format(transcript.id))
-                            print('frame_i: {}'.format(frame_i))
-                            print('orf_i: {}'.format(orf_i))
-                            print(transcript.data_obj.rmses)
+                            if not skip_rmse:
+                                print('RMSE')
+                                print('transcript: {}'.format(transcript.id))
+                                print('frame_i: {}'.format(frame_i))
+                                print('orf_i: {}'.format(orf_i))
+                                print(transcript.data_obj.rmses)
                             rmse = -1
                         try:
                             ssrmse = transcript.data_obj.ssrmses[frame_i][orf_i]
                         except:
-                            print('SSRMSE')
-                            print('transcript: {}'.format(transcript.id))
-                            print('frame_i: {}'.format(frame_i))
-                            print('orf_i: {}'.format(orf_i))
+                            if not skip_rmse:
+                                print('SSRMSE')
+                                print('transcript: {}'.format(transcript.id))
+                                print('frame_i: {}'.format(frame_i))
+                                print('orf_i: {}'.format(orf_i))
                             print(transcript.data_obj.ssrmses)
                             ssrmse = -1
                         try:
@@ -316,7 +321,8 @@ def infer_CDS(
     n_procs=1,
     n_transcripts_per_proc=10,
     ignore_strand_info=False,
-    use_old_mappability_method=False
+    use_old_mappability_method=False,
+    skip_rmse=False
 ):
     logger.info('Starting infer_CDS()')
     N_TRANSCRIPTS = dev_restrict_transcripts_to  # Set to None to allow all transcripts
@@ -361,7 +367,7 @@ def infer_CDS(
 
             primary_strands = ['+', '-'] if ignore_strand_info else [None]
             for primary_strand in primary_strands:
-                futs.append(executor.submit(
+                fut = executor.submit(
                     infer_on_transcripts,
                     primary_strand=primary_strand,
                     transcripts=transcripts_chunk,
@@ -371,15 +377,24 @@ def infer_CDS(
                     mappability_tabix_prefix=mappability_tabix_prefix,
                     infer_algorithm=infer_algorithm,
                     model_params=model_params,
-                    use_old_mappability_method=use_old_mappability_method
-                ))
+                    use_old_mappability_method=use_old_mappability_method,
+                    skip_rmse=skip_rmse
+                )
+                fut.tnames = deepcopy(tnames)
+                fut.transcripts_chunk = deepcopy(transcripts_chunk)
+                futs.append(fut)
 
     wait(futs)
     for fut in futs:
-        records_to_write_, debug_metadata_ = fut.result()
-        records_to_write.extend(records_to_write_)
-        for d in debug_metadata_:
-            debug_metadata[d['transcript_info']['strand']].append(d)
+        try:
+            records_to_write_, debug_metadata_ = fut.result()
+            records_to_write.extend(records_to_write_)
+            for d in debug_metadata_:
+                debug_metadata[d['transcript_info']['strand']].append(d)
+        except Exception as e:
+            print(f'Processing transcript {fut.tnames} failed: {e}')
+            print(''.join(traceback.TracebackException.from_exception(e).format()))
+
 
     # Output records
     for record in records_to_write:
